@@ -147,12 +147,12 @@ func TestCreateAssignment_RejectsDuplicateGifteeInSameDraw(t *testing.T) {
 		t.Fatalf("CreateMember() error = %v, want nil", err)
 	}
 
-	if _, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
+	if _, firstErr := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
 		DrawID:         draw.ID,
 		GifterMemberID: memberA.ID,
 		GifteeMemberID: memberB.ID,
-	}); err != nil {
-		t.Fatalf("CreateAssignment() first error = %v, want nil", err)
+	}); firstErr != nil {
+		t.Fatalf("CreateAssignment() first error = %v, want nil", firstErr)
 	}
 
 	_, err = store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
