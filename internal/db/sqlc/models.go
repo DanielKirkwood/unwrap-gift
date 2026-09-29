@@ -5,11 +5,64 @@
 package sqlc
 
 import (
+	"database/sql"
 	"time"
 )
+
+type Assignment struct {
+	ID             int64     `json:"id"`
+	DrawID         int64     `json:"draw_id"`
+	GifterMemberID int64     `json:"gifter_member_id"`
+	GifteeMemberID int64     `json:"giftee_member_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type Draw struct {
+	ID           int64     `json:"id"`
+	DrawerID     int64     `json:"drawer_id"`
+	ExchangeDate time.Time `json:"exchange_date"`
+	BudgetAmount int64     `json:"budget_amount"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type Drawer struct {
+	ID                        int64     `json:"id"`
+	Name                      string    `json:"name"`
+	OrganiserKratosIdentityID string    `json:"organiser_kratos_identity_id"`
+	CreatedAt                 time.Time `json:"created_at"`
+	UpdatedAt                 time.Time `json:"updated_at"`
+}
+
+type Member struct {
+	ID          int64     `json:"id"`
+	DrawerID    int64     `json:"drawer_id"`
+	FullName    string    `json:"full_name"`
+	PhoneNumber string    `json:"phone_number"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type Relationship struct {
+	ID           int64     `json:"id"`
+	PhoneNumberA string    `json:"phone_number_a"`
+	PhoneNumberB string    `json:"phone_number_b"`
+	CreatedAt    time.Time `json:"created_at"`
+}
 
 type Widget struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type WishlistItem struct {
+	ID          int64          `json:"id"`
+	PhoneNumber string         `json:"phone_number"`
+	ItemName    string         `json:"item_name"`
+	Size        sql.NullString `json:"size"`
+	Url         sql.NullString `json:"url"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }

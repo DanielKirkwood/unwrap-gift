@@ -9,12 +9,46 @@ import (
 )
 
 type Querier interface {
+	CreateAssignment(ctx context.Context, arg CreateAssignmentParams) (Assignment, error)
+	CreateDraw(ctx context.Context, arg CreateDrawParams) (Draw, error)
+	CreateDrawer(ctx context.Context, arg CreateDrawerParams) (Drawer, error)
+	CreateMember(ctx context.Context, arg CreateMemberParams) (Member, error)
+	// CreateRelationship does not sort its two arguments. The migration's
+	// CHECK (phone_number_a < phone_number_b) will reject a call where
+	// phone_number_a is not less than phone_number_b: the caller is
+	// responsible for sorting the pair before calling this query.
+	CreateRelationship(ctx context.Context, arg CreateRelationshipParams) (Relationship, error)
 	CreateWidget(ctx context.Context, name string) (Widget, error)
+	CreateWishlistItem(ctx context.Context, arg CreateWishlistItemParams) (WishlistItem, error)
+	DeleteDraw(ctx context.Context, id int64) error
+	DeleteDrawer(ctx context.Context, id int64) error
+	DeleteMember(ctx context.Context, id int64) error
+	DeleteRelationship(ctx context.Context, id int64) error
 	DeleteWidget(ctx context.Context, id int64) error
+	DeleteWishlistItem(ctx context.Context, id int64) error
+	GetDraw(ctx context.Context, id int64) (Draw, error)
+	GetDrawer(ctx context.Context, id int64) (Drawer, error)
+	GetMember(ctx context.Context, id int64) (Member, error)
 	GetWidget(ctx context.Context, id int64) (Widget, error)
+	ListAssignmentsByDraw(ctx context.Context, drawID int64) ([]Assignment, error)
+	ListDrawersByOrganiser(ctx context.Context, organiserKratosIdentityID string) ([]Drawer, error)
+	ListDrawsByDrawer(ctx context.Context, drawerID int64) ([]Draw, error)
+	ListMembersByDrawer(ctx context.Context, drawerID int64) ([]Member, error)
+	ListMembersByPhoneNumber(ctx context.Context, phoneNumber string) ([]Member, error)
+	// ListRelationshipsForPhoneNumber takes the same phone number twice
+	// (PhoneNumberA and PhoneNumberB): it is not a two-number lookup. Passing
+	// different values, or leaving one unset, silently returns only the
+	// relationships where that phone number happens to be stored in the
+	// matching column.
+	ListRelationshipsForPhoneNumber(ctx context.Context, arg ListRelationshipsForPhoneNumberParams) ([]Relationship, error)
 	ListWidgets(ctx context.Context) ([]Widget, error)
+	ListWishlistItemsByPhoneNumber(ctx context.Context, phoneNumber string) ([]WishlistItem, error)
 	Ping(ctx context.Context) (int64, error)
+	UpdateDrawStatus(ctx context.Context, arg UpdateDrawStatusParams) (Draw, error)
+	UpdateDrawer(ctx context.Context, arg UpdateDrawerParams) (Drawer, error)
+	UpdateMember(ctx context.Context, arg UpdateMemberParams) (Member, error)
 	UpdateWidget(ctx context.Context, arg UpdateWidgetParams) (Widget, error)
+	UpdateWishlistItem(ctx context.Context, arg UpdateWishlistItemParams) (WishlistItem, error)
 }
 
 var _ Querier = (*Queries)(nil)
