@@ -121,5 +121,5 @@ func (s *Store) WithTx(ctx context.Context, fn func(*sqlc.Queries) error) (err e
 // busy timeout, so concurrent readers don't block on each other and writers
 // wait rather than immediately failing under contention.
 func dsn(path string) string {
-	return fmt.Sprintf("file:%s?_journal=WAL&_timeout=%d", path, busyTimeoutMS)
+	return fmt.Sprintf("file:%s?_journal=WAL&_timeout=%d&_foreign_keys=on", path, busyTimeoutMS)
 }
