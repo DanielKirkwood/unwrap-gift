@@ -1,0 +1,43 @@
+# Quick-start: unwrap-gift alone, against SQLite, with every other feature
+# (otel/kratos/keto) left disabled. Proves the production image (see
+# Dockerfile) runs standalone — it does not include Kratos/Keto (see
+# deploy/kratos, deploy/keto for those) or a reverse proxy (see
+# deploy/production for the full stack).
+#
+#   docker compose up --build
+#   curl localhost:8080/health/alive
+#
+# Migrations run as an explicit one-shot step before the app serves
+# traffic, the same pattern deploy/kratos and deploy/keto's own
+# *-migrate services use.
+
+name: unwrap-gift-quickstart
+
+services:
+  migrate:
+    build:
+      context: .
+    environment:
+      DATABASE_PATH: /data/unwrap-gift.db
+    volumes:
+      - unwrap-gift-data:/data
+    command: ["db", "migrate"]
+
+  unwrap-gift:
+    build:
+      context: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_PATH: /data/unwrap-gift.db
+    volumes:
+      - unwrap-gift-data:/data
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+    command: ["start"]
+
+volumes:
+  unwrap-gift-data:

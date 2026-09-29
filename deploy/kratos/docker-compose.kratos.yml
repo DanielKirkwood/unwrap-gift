@@ -1,0 +1,90 @@
+# Local development Ory Kratos stack. Not used in production — see
+# README.md in this directory. Started/stopped via the Taskfile's
+# kratos:up/kratos:down targets, which run:
+#
+#   docker compose -f deploy/kratos/docker-compose.kratos.yml up/down
+#
+# unwrap-gift itself runs on the host (task run), not in this compose network,
+# so KRATOS_PUBLIC_URL/KRATOS_ADMIN_URL in .env point at localhost:4433/4434.
+
+name: unwrap-gift-kratos
+
+services:
+  postgres-kratos:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: kratos
+      POSTGRES_PASSWORD: kratos
+      POSTGRES_DB: kratos
+    ports:
+      - "5433:5432"
+    volumes:
+      - kratos-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kratos"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    networks:
+      - kratos
+
+  kratos-migrate:
+    image: oryd/kratos:v1.3.1
+    depends_on:
+      postgres-kratos:
+        condition: service_healthy
+    environment:
+      DSN: postgres://kratos:kratos@postgres-kratos:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ./kratos.yml:/etc/config/kratos/kratos.yml
+      - ./identity.schema.json:/etc/config/kratos/identity.schema.json
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+    networks:
+      - kratos
+
+  kratos:
+    image: oryd/kratos:v1.3.1
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://kratos:kratos@postgres-kratos:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    ports:
+      - "4433:4433" # public API — matches KRATOS_PUBLIC_URL in .env
+      - "4434:4434" # admin API — matches KRATOS_ADMIN_URL in .env
+    volumes:
+      - ./kratos.yml:/etc/config/kratos/kratos.yml
+      - ./identity.schema.json:/etc/config/kratos/identity.schema.json
+    command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
+    networks:
+      - kratos
+
+  kratos-selfservice-ui-node:
+    image: oryd/kratos-selfservice-ui-node:v1.3.1
+    environment:
+      KRATOS_PUBLIC_URL: http://kratos:4433/
+      KRATOS_BROWSER_URL: http://127.0.0.1:4433/
+      COOKIE_SECRET: PLEASE-CHANGE-ME-DEV-ONLY
+      CSRF_COOKIE_NAME: ax-csrf-cookie
+      CSRF_COOKIE_SECRET: PLEASE-CHANGE-ME-DEV-ONLY-TOO
+    ports:
+      - "4455:3000"
+    depends_on:
+      - kratos
+    networks:
+      - kratos
+
+  mailslurper:
+    image: oryd/mailslurper:latest-smtps
+    ports:
+      - "4436:4436" # web UI — view sent verification/recovery emails
+      - "4437:4437"
+    networks:
+      - kratos
+
+networks:
+  kratos:
+    driver: bridge
+
+volumes:
+  kratos-postgres-data:

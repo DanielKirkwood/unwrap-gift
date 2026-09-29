@@ -1,0 +1,16 @@
+// Project-level Zed settings. See https://zed.dev/docs/configuring-zed.
+{
+  "lsp": {
+    "gopls": {
+      "initialization_options": {
+        // Makes gopls also analyze e2e-tagged files (e.g.
+        // internal/clients/kratosclient/kratosclient_e2e_test.go), which
+        // are otherwise excluded from the default build (see
+        // Taskfile.yml's test:e2e task). This adds them to what gopls
+        // shows — it doesn't replace the default view, since every other
+        // file has no build tag and stays included regardless.
+        "buildFlags": ["-tags=e2e"]
+      }
+    }
+  }
+}

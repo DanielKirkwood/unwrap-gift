@@ -1,0 +1,197 @@
+package app_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"github.com/DanielKirkwood/unwrap-gift/internal/app"
+	"github.com/DanielKirkwood/unwrap-gift/internal/config"
+	"github.com/DanielKirkwood/unwrap-gift/internal/db"
+)
+
+func TestBuildServers_KratosDisabled_IdentitiesNotMounted(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{Env: "development", LogLevel: "debug"}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	rec := httptest.NewRecorder()
+	servers.Hidden.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/identities", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /admin/identities status = %d, want 404 (kratos disabled, route never mounted)", rec.Code)
+	}
+}
+
+func TestBuildServers_KratosEnabled_HiddenRouterRequiresAuth(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		Env:             "production",
+		LogLevel:        "info",
+		KratosPublicURL: "http://127.0.0.1:4433",
+		KratosAdminURL:  "http://127.0.0.1:4434",
+	}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	// No Cookie header: AuthenticationMiddleware rejects before ever
+	// reaching Kratos, so this needs no live Kratos instance to assert 401.
+	rec := httptest.NewRecorder()
+	servers.Hidden.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/identities", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET /admin/identities status = %d, want 401 (no session cookie)", rec.Code)
+	}
+
+	// /health/* stays exempt even with kratos enabled.
+	healthRec := httptest.NewRecorder()
+	servers.Hidden.Handler.ServeHTTP(healthRec, httptest.NewRequest(http.MethodGet, "/health/alive", nil))
+
+	if healthRec.Code != http.StatusOK {
+		t.Errorf("GET /health/alive status = %d, want 200", healthRec.Code)
+	}
+}
+
+func TestBuildServers_DatabaseDisabled_WidgetsNotMounted(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{Env: "development", LogLevel: "debug"}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	rec := httptest.NewRecorder()
+	servers.Protected.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/widgets", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /widgets status = %d, want 404 (database disabled, route never mounted)", rec.Code)
+	}
+}
+
+// TestBuildServers_DatabaseEnabled_WidgetsCRUD proves the combination
+// nothing before Phase 7 exercised end-to-end: a real sqlc-backed resource,
+// served through the protected router. Kratos stays disabled so
+// RouterDeps.Auth is nil and the request needs no session cookie — auth
+// itself is covered separately below.
+func TestBuildServers_DatabaseEnabled_WidgetsCRUD(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		Env:          "development",
+		LogLevel:     "debug",
+		DatabasePath: filepath.Join(t.TempDir(), "test.db"),
+	}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = a.Store.Close() })
+
+	if migrateErr := db.Migrate(t.Context(), a.Store.DB); migrateErr != nil {
+		t.Fatalf("Migrate() error = %v, want nil", migrateErr)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/widgets", bytes.NewBufferString(`{"name":"sprocket"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+
+	createRec := httptest.NewRecorder()
+	servers.Protected.Handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("POST /widgets status = %d, want 201 (body: %s)", createRec.Code, createRec.Body.String())
+	}
+
+	var created struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	if decodeErr := json.NewDecoder(createRec.Body).Decode(&created); decodeErr != nil {
+		t.Fatalf("decode create response: %v", decodeErr)
+	}
+
+	getRec := httptest.NewRecorder()
+	getPath := "/widgets/" + strconv.FormatInt(created.Data.ID, 10)
+	servers.Protected.Handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, getPath, nil))
+	if getRec.Code != http.StatusOK {
+		t.Errorf("GET %s status = %d, want 200 (body: %s)", getPath, getRec.Code, getRec.Body.String())
+	}
+
+	deleteRec := httptest.NewRecorder()
+	servers.Protected.Handler.ServeHTTP(deleteRec, httptest.NewRequest(http.MethodDelete, getPath, nil))
+	if deleteRec.Code != http.StatusNoContent {
+		t.Errorf("DELETE %s status = %d, want 204 (body: %s)", getPath, deleteRec.Code, deleteRec.Body.String())
+	}
+}
+
+func TestBuildServers_DatabaseAndKratosEnabled_ProtectedRouterRequiresAuth(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		Env:             "production",
+		LogLevel:        "info",
+		DatabasePath:    filepath.Join(t.TempDir(), "test.db"),
+		KratosPublicURL: "http://127.0.0.1:4433",
+		KratosAdminURL:  "http://127.0.0.1:4434",
+	}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = a.Store.Close() })
+
+	if migrateErr := db.Migrate(t.Context(), a.Store.DB); migrateErr != nil {
+		t.Fatalf("Migrate() error = %v, want nil", migrateErr)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	// No Cookie header: AuthenticationMiddleware rejects before ever
+	// reaching Kratos or the widgets store, so this needs no live Kratos
+	// instance to assert 401.
+	rec := httptest.NewRecorder()
+	servers.Protected.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/widgets", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET /widgets status = %d, want 401 (no session cookie)", rec.Code)
+	}
+}

@@ -1,0 +1,27 @@
+# Automatic HTTPS reverse proxy for the production stack. {$VAR} syntax is
+# Caddy's own env var interpolation, populated from .env.production via
+# docker-compose.yml's `environment:` block on the caddy service.
+#
+# Deliberately not routed here: unwrap-gift's hidden router (admin-only, see
+# internal/api/router.go), Kratos's admin API (port 4434), and both of
+# Keto's APIs (4466/4467, internal-only per deploy/keto/README.md). None of
+# them have a published compose port either — this file is a second layer
+# of the same rule, not the only one.
+#
+# api.{$DOMAIN} is unwrap-gift's real API surface today (only the protected
+# router has content — see deploy/kratos/kratos.production.yml's own
+# comment on why the bare domain isn't routed yet). auth/login are Kratos's
+# public API and self-service UI, both of which browsers talk to directly
+# for login/registration/recovery flows.
+
+api.{$DOMAIN} {
+	reverse_proxy unwrap-gift:8081
+}
+
+auth.{$DOMAIN} {
+	reverse_proxy kratos:4433
+}
+
+login.{$DOMAIN} {
+	reverse_proxy kratos-selfservice-ui-node:3000
+}

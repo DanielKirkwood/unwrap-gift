@@ -1,0 +1,41 @@
+# unwrap-gift
+
+A Go API boilerplate/template (chi + Ory Kratos + Ory Keto + SQLite/sqlc + OpenTelemetry + Cobra CLI), meant to be forked as a starting point for new projects — not a standalone product.
+
+## Overview
+
+Provides authentication (Ory Kratos), authorization (Ory Keto), SQLite persistence via sqlc, OpenTelemetry observability, a feature-flag system, and a Cobra-based CLI out of the box. Intended to be cloned/forked and adapted per project, not consumed as a library or run as-is in production.
+
+## Key Concepts
+
+- Three independent HTTP routers (public/protected/hidden), each on its own port — see ARCHITECTURE.md, "The three-router model".
+- Feature-flag system with a "nil is disabled" convention — see ARCHITECTURE.md, "Feature flags and the 'nil is disabled' convention".
+- Interface segregation: `internal/api` never imports `internal/clients` or `internal/db` directly — see ARCHITECTURE.md, "Interface segregation for external dependencies".
+- RFC 9457 Problem Details error model plus a `{"data": ...}` success envelope — see ARCHITECTURE.md, "Error and envelope model".
+
+## Extension Patterns
+
+Two canonical worked examples for adding a new resource:
+- Widgets (`internal/api/widgets.go`, `internal/app/widgets.go`, `internal/db/*widgets*`) — a DB-backed authenticated resource.
+- Identities (`internal/api/identities.go`) — a Kratos-admin-backed, authz-protected resource.
+
+ARCHITECTURE.md, "Adding a new resource", has the step-by-step walkthrough for both.
+
+## Pointers
+
+Read these, roughly in this order, to get oriented:
+
+1. README.md — project setup and usage
+2. ARCHITECTURE.md — system design, routers, layering, error model, extension walkthroughs
+3. CONTRIBUTING.md — contribution workflow
+4. internal/api/doc.go — HTTP handler layer
+5. internal/app/doc.go — application/service layer
+6. internal/clients/doc.go — external client integrations
+7. internal/db/doc.go — persistence layer
+8. internal/config/doc.go — configuration
+9. internal/tasks/doc.go — self-registering, ad-hoc CLI-run ops jobs (not a background job queue)
+10. DEPLOYMENT.md — deployment instructions
+11. CI-CD.md — CI/CD pipeline
+12. CHANGELOG.md — release history
+
+Module: github.com/DanielKirkwood/unwrap-gift (Go 1.27.1)

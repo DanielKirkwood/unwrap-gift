@@ -1,0 +1,25 @@
+# Local development config for self-hosted Ory Keto. Started via
+# `task keto:up` (see Taskfile.yml / docker-compose.keto.yml).
+#
+# Not used in production: see README.md in this directory for what changes
+# (the write API must never be internet-facing, managed Postgres, no --dev
+# equivalent shortcuts) when deploying for real.
+
+version: v26.2.0
+
+log:
+  level: debug
+  format: text
+
+namespaces:
+  location: file:///etc/config/keto/identities.ts
+
+dsn: ${DSN}
+
+serve:
+  read:
+    host: 0.0.0.0
+    port: 4466
+  write:
+    host: 0.0.0.0
+    port: 4467

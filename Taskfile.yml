@@ -1,0 +1,149 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+vars:
+    EXE: bin/unwrap-gift{{exeExt}}
+    DEV_DB_PATH: dev.db
+
+tasks:
+    default:
+        desc: Build and run the app
+        aliases: [run]
+        cmds:
+            - task: build
+            - ./{{.EXE}} {{.CLI_ARGS}}
+
+    build:
+        desc: Builds the app
+        cmds:
+            - go build -v -o {{.EXE}}
+        generates:
+            - "{{.EXE}}"
+
+    test:
+        desc: Runs the test suite
+        cmds:
+            - go test ./...
+
+    test:e2e:
+        desc: Runs e2e tests (needs Docker; spins up its own Postgres/Kratos/mailslurper containers)
+        cmds:
+            - go test -tags=e2e ./...
+
+    fmt:
+        desc: Formats the code
+        cmds:
+            - golangci-lint fmt
+
+    lint:
+        desc: Lints the code
+        cmds:
+            - golangci-lint run
+
+    db:migrate:
+        desc: Apply all pending database migrations
+        deps: [build]
+        env:
+            DATABASE_PATH: "{{.DEV_DB_PATH}}"
+        cmds:
+            - ./{{.EXE}} db migrate --dev
+
+    db:rollback:
+        desc: Roll back the most recent database migration
+        deps: [build]
+        env:
+            DATABASE_PATH: "{{.DEV_DB_PATH}}"
+        cmds:
+            - ./{{.EXE}} db rollback --dev
+
+    db:create:
+        desc: "Create a new migration file (usage: task db:create -- add_widgets)"
+        deps: [build]
+        cmds:
+            - ./{{.EXE}} db create {{.CLI_ARGS}}
+
+    db:status:
+        desc: Show which migrations are applied vs pending
+        deps: [build]
+        env:
+            DATABASE_PATH: "{{.DEV_DB_PATH}}"
+        cmds:
+            - ./{{.EXE}} db status --dev
+
+    db:seed:
+        desc: Seed the database with development data
+        deps: [build]
+        env:
+            DATABASE_PATH: "{{.DEV_DB_PATH}}"
+        cmds:
+            - ./{{.EXE}} db seed --dev
+
+    db:reset:
+        desc: Drop the local dev SQLite file and re-run migrations from scratch
+        cmds:
+            - rm -f {{.DEV_DB_PATH}} {{.DEV_DB_PATH}}-wal {{.DEV_DB_PATH}}-shm
+            - task: db:migrate
+
+    sqlc:generate:
+        desc: Regenerate sqlc code from schema + queries
+        cmds:
+            - sqlc generate
+
+    sqlc:vet:
+        desc: Lint SQL queries against the live schema
+        cmds:
+            - sqlc vet
+
+    sqlc:check:
+        desc: Fail if committed generated code is stale (CI drift check)
+        cmds:
+            - sqlc generate
+            - git diff --exit-code internal/db/sqlc
+
+    kratos:up:
+        desc: Start the local dev Ory Kratos stack (Postgres, Kratos, self-service UI, mailslurper)
+        cmds:
+            - docker compose -f deploy/kratos/docker-compose.kratos.yml up --wait
+
+    kratos:down:
+        desc: Stop the local dev Ory Kratos stack
+        cmds:
+            - docker compose -f deploy/kratos/docker-compose.kratos.yml down
+
+    kratos:logs:
+        desc: Tail logs from the local dev Ory Kratos stack
+        cmds:
+            - docker compose -f deploy/kratos/docker-compose.kratos.yml logs -f
+
+    keto:up:
+        desc: Start the local dev Ory Keto stack (Postgres, Keto)
+        cmds:
+            - docker compose -f deploy/keto/docker-compose.keto.yml up --wait
+
+    keto:down:
+        desc: Stop the local dev Ory Keto stack
+        cmds:
+            - docker compose -f deploy/keto/docker-compose.keto.yml down
+
+    keto:logs:
+        desc: Tail logs from the local dev Ory Keto stack
+        cmds:
+            - docker compose -f deploy/keto/docker-compose.keto.yml logs -f
+
+    auth:up:
+        desc: Start the full local dev auth stack (Kratos + Keto)
+        cmds:
+            - task: kratos:up
+            - task: keto:up
+
+    auth:down:
+        desc: Stop the full local dev auth stack (Kratos + Keto)
+        cmds:
+            - task: keto:down
+            - task: kratos:down
+
+    clean:
+        desc: Clean every generated file
+        cmds:
+            - rm -f {{.EXE}}

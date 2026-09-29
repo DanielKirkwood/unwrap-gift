@@ -1,0 +1,181 @@
+# Full production stack: unwrap-gift, Kratos, Keto, their two Postgres
+# instances, and Caddy in front. See README.md in this directory for the
+# deploy runbook — this file alone is not enough context to run it safely.
+#
+# Secrets/domain come from .env.production (gitignored — copy
+# .env.production.example and fill it in). Every ${VAR} below is compose-
+# level interpolation, which needs that file passed explicitly:
+#
+#   docker compose --env-file .env.production up -d
+#
+# Each service gets only the ${VAR}s it actually needs, passed explicitly
+# via `environment:` — not a blanket `env_file:` on every service, which
+# would leak every other service's secrets/passwords into containers that
+# have no business seeing them.
+#
+# Only caddy publishes host ports. Every other service — including
+# Kratos's admin API and both of Keto's APIs — is reachable only over the
+# compose-internal network, matching what deploy/kratos/README.md and
+# deploy/keto/README.md both call out as the one hard requirement for
+# running these for real.
+
+name: unwrap-gift-production
+
+services:
+  postgres-kratos:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: kratos
+      POSTGRES_PASSWORD: ${KRATOS_POSTGRES_PASSWORD}
+      POSTGRES_DB: kratos
+    volumes:
+      - kratos-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kratos"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  kratos-migrate:
+    image: oryd/kratos:v1.3.1
+    depends_on:
+      postgres-kratos:
+        condition: service_healthy
+    environment:
+      DSN: postgres://kratos:${KRATOS_POSTGRES_PASSWORD}@postgres-kratos:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ../kratos/kratos.production.yml:/etc/config/kratos/kratos.yml
+      - ../kratos/identity.schema.json:/etc/config/kratos/identity.schema.json
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+
+  kratos:
+    image: oryd/kratos:v1.3.1
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://kratos:${KRATOS_POSTGRES_PASSWORD}@postgres-kratos:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+      # Exactly the ${VAR} references kratos.production.yml makes — not the
+      # blanket .env.production, which also holds Keto's secrets/password.
+      DOMAIN: ${DOMAIN}
+      KRATOS_SECRETS_COOKIE: ${KRATOS_SECRETS_COOKIE}
+      KRATOS_SECRETS_CIPHER: ${KRATOS_SECRETS_CIPHER}
+      SMTP_CONNECTION_URI: ${SMTP_CONNECTION_URI}
+    volumes:
+      - ../kratos/kratos.production.yml:/etc/config/kratos/kratos.yml
+      - ../kratos/identity.schema.json:/etc/config/kratos/identity.schema.json
+    command: serve -c /etc/config/kratos/kratos.yml
+    restart: unless-stopped
+
+  kratos-selfservice-ui-node:
+    image: oryd/kratos-selfservice-ui-node:v1.3.1
+    environment:
+      KRATOS_PUBLIC_URL: http://kratos:4433/
+      KRATOS_BROWSER_URL: https://auth.${DOMAIN}/
+      COOKIE_SECRET: ${UI_COOKIE_SECRET}
+      CSRF_COOKIE_NAME: ax-csrf-cookie
+      CSRF_COOKIE_SECRET: ${UI_CSRF_COOKIE_SECRET}
+    depends_on:
+      - kratos
+    restart: unless-stopped
+
+  postgres-keto:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: keto
+      POSTGRES_PASSWORD: ${KETO_POSTGRES_PASSWORD}
+      POSTGRES_DB: keto
+    volumes:
+      - keto-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keto"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  keto-migrate:
+    image: oryd/keto:v26.2.0
+    depends_on:
+      postgres-keto:
+        condition: service_healthy
+    environment:
+      DSN: postgres://keto:${KETO_POSTGRES_PASSWORD}@postgres-keto:5432/keto?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ../keto/keto.production.yml:/etc/config/keto/keto.yml
+      - ../keto/identities.ts:/etc/config/keto/identities.ts
+    command: -c /etc/config/keto/keto.yml migrate up -y
+
+  keto:
+    image: oryd/keto:v26.2.0
+    depends_on:
+      keto-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://keto:${KETO_POSTGRES_PASSWORD}@postgres-keto:5432/keto?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ../keto/keto.production.yml:/etc/config/keto/keto.yml
+      - ../keto/identities.ts:/etc/config/keto/identities.ts
+    command: serve -c /etc/config/keto/keto.yml
+    restart: unless-stopped
+
+  unwrap-gift-migrate:
+    build:
+      context: ../..
+    environment:
+      DATABASE_PATH: /data/unwrap-gift.db
+    volumes:
+      - unwrap-gift-data:/data
+    command: ["db", "migrate"]
+
+  unwrap-gift:
+    build:
+      context: ../..
+    depends_on:
+      unwrap-gift-migrate:
+        condition: service_completed_successfully
+      kratos:
+        condition: service_started
+      keto:
+        condition: service_started
+    environment:
+      ENV: production
+      DATABASE_PATH: /data/unwrap-gift.db
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      KETO_READ_URL: http://keto:4466
+      KETO_WRITE_URL: http://keto:4467
+      # Only the two vars unwrap-gift actually reads (see internal/config/config.go)
+      # — not the blanket .env.production, which also holds Kratos/Keto
+      # Postgres passwords and secrets unwrap-gift has no business seeing.
+      KETO_SEED_ADMIN_IDENTITY_ID: ${KETO_SEED_ADMIN_IDENTITY_ID}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+    volumes:
+      - unwrap-gift-data:/data
+    command: ["start"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - unwrap-gift
+      - kratos
+      - kratos-selfservice-ui-node
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  kratos-postgres-data:
+  keto-postgres-data:
+  unwrap-gift-data:
+  caddy-data:
+  caddy-config:

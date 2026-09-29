@@ -1,0 +1,28 @@
+# Production config for self-hosted Ory Keto. Started via
+# deploy/production/docker-compose.yml — see deploy/production/README.md
+# for the deploy runbook, and README.md (this directory) for the *why*.
+#
+# There's little to change here structurally versus the dev config: Keto's
+# real production requirement — the write API never reachable from the
+# public internet — is a network-placement decision, made in
+# deploy/production/docker-compose.yml (no published port for keto beyond
+# the compose-internal network), not something keto.yml itself controls.
+
+version: v26.2.0
+
+log:
+  level: info
+  format: json
+
+namespaces:
+  location: file:///etc/config/keto/identities.ts
+
+dsn: ${DSN}
+
+serve:
+  read:
+    host: 0.0.0.0
+    port: 4466
+  write:
+    host: 0.0.0.0
+    port: 4467

@@ -1,0 +1,110 @@
+# Production config for self-hosted Ory Kratos. Started via
+# deploy/production/docker-compose.yml — see deploy/production/README.md
+# for the deploy runbook. This file applies every change README.md (this
+# directory) already called for; read that first for the *why* behind
+# each line below.
+#
+# ${VAR} values are expanded by Kratos itself from the container's
+# environment (the same mechanism the dev kratos.yml already relies on for
+# dsn: ${DSN}) — set by deploy/production/docker-compose.yml from
+# .env.production. Nothing secret is hardcoded here.
+
+version: v1.3.0
+
+dsn: ${DSN}
+
+serve:
+  public:
+    base_url: https://auth.${DOMAIN}/
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://${DOMAIN}
+        - https://api.${DOMAIN}
+        - https://login.${DOMAIN}
+  admin:
+    # Never published to the host in docker-compose.yml — reachable only
+    # from unwrap-gift, over the compose network, by container name.
+    base_url: http://kratos:4434/
+
+selfservice:
+  default_browser_return_url: https://login.${DOMAIN}/
+  allowed_return_urls:
+    - https://login.${DOMAIN}
+
+  methods:
+    password:
+      enabled: true
+
+  flows:
+    error:
+      ui_url: https://login.${DOMAIN}/error
+
+    settings:
+      ui_url: https://login.${DOMAIN}/settings
+      privileged_session_max_age: 15m
+
+    recovery:
+      enabled: true
+      ui_url: https://login.${DOMAIN}/recovery
+
+    verification:
+      enabled: true
+      ui_url: https://login.${DOMAIN}/verification
+      after:
+        default_browser_return_url: https://login.${DOMAIN}/
+
+    logout:
+      after:
+        default_browser_return_url: https://login.${DOMAIN}/login
+
+    login:
+      ui_url: https://login.${DOMAIN}/login
+
+    registration:
+      ui_url: https://login.${DOMAIN}/registration
+      after:
+        password:
+          hooks:
+            - hook: session
+
+# No --dev flag in the compose command for this file, and no
+# watch-courier either — both are dev-only conveniences (see
+# docker-compose.kratos.yml's dev command for comparison).
+log:
+  level: info
+  format: json
+  # The dev config sets this true to make debugging easier locally. It
+  # must be false in production — true leaks credentials/tokens into logs.
+  leak_sensitive_values: false
+
+secrets:
+  cookie:
+    - ${KRATOS_SECRETS_COOKIE}
+  cipher:
+    - ${KRATOS_SECRETS_CIPHER}
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+hashers:
+  algorithm: bcrypt
+  bcrypt:
+    # Dev uses cost 8 for fast test iteration. 12 is Ory's own production
+    # default.
+    cost: 12
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.schema.json
+
+session:
+  cookie:
+    domain: ${DOMAIN}
+    same_site: Lax
+
+courier:
+  smtp:
+    connection_uri: ${SMTP_CONNECTION_URI}

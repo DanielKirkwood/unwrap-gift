@@ -1,0 +1,7 @@
+.git
+bin/
+dev.db
+dev.db-wal
+dev.db-shm
+docs/
+.env
