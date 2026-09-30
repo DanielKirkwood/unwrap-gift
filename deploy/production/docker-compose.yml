@@ -146,7 +146,9 @@ services:
       KRATOS_ADMIN_URL: http://kratos:4434
       KETO_READ_URL: http://keto:4466
       KETO_WRITE_URL: http://keto:4467
-      # Only the two vars unwrap-gift actually reads (see internal/config/config.go)
+      SEVEN_API_KEY: ${SEVEN_API_KEY}
+      SEVEN_SENDER_ID: ${SEVEN_SENDER_ID}
+      # Only the vars unwrap-gift actually reads (see internal/config/config.go)
       # — not the blanket .env.production, which also holds Kratos/Keto
       # Postgres passwords and secrets unwrap-gift has no business seeing.
       KETO_SEED_ADMIN_IDENTITY_ID: ${KETO_SEED_ADMIN_IDENTITY_ID}

@@ -130,6 +130,59 @@ func TestBootstrapKratosEnabled(t *testing.T) {
 	}
 }
 
+func TestBootstrapSMSDisabled(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{Env: "development", LogLevel: "debug"}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	smsFeature, ok := a.Registry.Feature("sms")
+	if !ok {
+		t.Fatal("sms feature not registered")
+	}
+	if smsFeature.Enabled {
+		t.Error("sms feature Enabled = true, want false (no SEVEN_* env set)")
+	}
+	if a.SMS == nil {
+		t.Fatal("SMS = nil, want non-nil (sms client is never nil)")
+	}
+	if a.SMS.Enabled {
+		t.Error("SMS.Enabled = true, want false")
+	}
+}
+
+func TestBootstrapSMSEnabled(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		Env: "production", LogLevel: "info",
+		SevenAPIKey: "test-key", SevenSenderID: "TestSender",
+	}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	smsFeature, ok := a.Registry.Feature("sms")
+	if !ok {
+		t.Fatal("sms feature not registered")
+	}
+	if !smsFeature.Enabled {
+		t.Error("sms feature Enabled = false, want true (SEVEN_* env set)")
+	}
+	if a.SMS == nil || !a.SMS.Enabled {
+		t.Fatal("SMS.Enabled = false or SMS nil, want enabled non-nil client")
+	}
+	if a.SMS.Sender == nil {
+		t.Error("SMS.Sender = nil, want non-nil")
+	}
+}
+
 func TestBootstrapUnknownLogLevel(t *testing.T) {
 	t.Parallel()
 

@@ -48,6 +48,16 @@ type KetoConfig struct {
 	WriteURL string
 }
 
+// SMSConfig configures the seven.io client smsclient.New builds. It's
+// only built once the "sms" feature is enabled, i.e. once both
+// SevenAPIKey and SevenSenderID are set. Unlike KratosConfig/KetoConfig,
+// a disabled "sms" feature does not mean smsclient.Client is nil — see
+// smsclient.New's doc comment.
+type SMSConfig struct {
+	APIKey   string
+	SenderID string
+}
+
 // DefaultRegistry returns a Registry with every known feature registered,
 // unresolved (call ResolveFeatureEnabledState, then Configure, then
 // ValidateReadiness on the result).
@@ -95,6 +105,14 @@ func DefaultRegistry() *Registry {
 		Requires:    []string{"kratos"},
 		Build: func(e EnvVars) any {
 			return KetoConfig{ReadURL: e.KetoReadURL, WriteURL: e.KetoWriteURL}
+		},
+	})
+
+	r.Register(Feature{
+		Name:        "sms",
+		RequiredEnv: []string{"SevenAPIKey", "SevenSenderID"},
+		Build: func(e EnvVars) any {
+			return SMSConfig{APIKey: e.SevenAPIKey, SenderID: e.SevenSenderID}
 		},
 	})
 

@@ -12,6 +12,7 @@ import (
 	"github.com/DanielKirkwood/unwrap-gift/internal/clients/kratosclient"
 	"github.com/DanielKirkwood/unwrap-gift/internal/clients/logger"
 	"github.com/DanielKirkwood/unwrap-gift/internal/clients/otelclient"
+	"github.com/DanielKirkwood/unwrap-gift/internal/clients/smsclient"
 	"github.com/DanielKirkwood/unwrap-gift/internal/config"
 	"github.com/DanielKirkwood/unwrap-gift/internal/db"
 )
@@ -38,6 +39,7 @@ type App struct {
 	Store    *db.Store
 	Kratos   *kratosclient.Client
 	Keto     *ketoclient.Client
+	SMS      *smsclient.Client
 	Servers  *Servers
 }
 
@@ -96,13 +98,22 @@ func Bootstrap(ctx context.Context, env config.EnvVars) (*App, error) {
 		return nil, fmt.Errorf("app: bootstrap keto: %w", err)
 	}
 
+	smsFeature, _ := registry.Feature("sms")
+	smsCfg, _ := smsFeature.Config.(config.SMSConfig)
+
+	sms, err := smsclient.New(smsCfg, smsFeature.Enabled, log)
+	if err != nil {
+		return nil, fmt.Errorf("app: bootstrap sms: %w", err)
+	}
+
 	log.DebugContext(ctx, "bootstrap complete",
 		"env", env.Env, "otel_enabled", otelFeature.Enabled, "database_enabled", dbFeature.Enabled,
-		"kratos_enabled", kratosFeature.Enabled, "keto_enabled", ketoFeature.Enabled)
+		"kratos_enabled", kratosFeature.Enabled, "keto_enabled", ketoFeature.Enabled,
+		"sms_enabled", smsFeature.Enabled)
 
 	return &App{
 		Env: env, Registry: registry, Logger: log, Otel: providers,
-		Store: store, Kratos: kratos, Keto: keto,
+		Store: store, Kratos: kratos, Keto: keto, SMS: sms,
 	}, nil
 }
 

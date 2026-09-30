@@ -11,6 +11,7 @@ require (
 	github.com/ory/kratos-client-go/v26 v26.2.0
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/riandyrn/otelchi v0.12.3
+	github.com/seven-io/go-client v0.0.0-20260526130948-cfd027e73da2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/testcontainers/testcontainers-go v0.44.0
