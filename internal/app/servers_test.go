@@ -41,10 +41,11 @@ func TestBuildServers_KratosEnabled_HiddenRouterRequiresAuth(t *testing.T) {
 	t.Parallel()
 
 	env := config.EnvVars{
-		Env:             "production",
-		LogLevel:        "info",
-		KratosPublicURL: "http://127.0.0.1:4433",
-		KratosAdminURL:  "http://127.0.0.1:4434",
+		Env:                        "production",
+		LogLevel:                   "info",
+		KratosPublicURL:            "http://127.0.0.1:4433",
+		KratosAdminURL:             "http://127.0.0.1:4434",
+		KratosCourierWebhookSecret: "test-webhook-secret",
 	}
 
 	a, err := app.Bootstrap(t.Context(), env)
@@ -72,6 +73,77 @@ func TestBuildServers_KratosEnabled_HiddenRouterRequiresAuth(t *testing.T) {
 
 	if healthRec.Code != http.StatusOK {
 		t.Errorf("GET /health/alive status = %d, want 200", healthRec.Code)
+	}
+}
+
+func TestBuildServers_KratosDisabled_CourierWebhookNotMounted(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{Env: "development", LogLevel: "debug"}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	rec := httptest.NewRecorder()
+	servers.Hidden.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhooks/kratos/sms", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("POST /webhooks/kratos/sms status = %d, want 404 (kratos disabled, route never mounted)", rec.Code)
+	}
+}
+
+func TestBuildServers_KratosEnabled_CourierWebhookRequiresSecret(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		Env:                        "production",
+		LogLevel:                   "info",
+		KratosPublicURL:            "http://127.0.0.1:4433",
+		KratosAdminURL:             "http://127.0.0.1:4434",
+		KratosCourierWebhookSecret: "test-webhook-secret",
+	}
+
+	a, err := app.Bootstrap(t.Context(), env)
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v, want nil", err)
+	}
+
+	servers, err := app.BuildServers(a)
+	if err != nil {
+		t.Fatalf("BuildServers() error = %v, want nil", err)
+	}
+
+	// No X-Courier-Webhook-Secret header: CourierWebhookAuthMiddleware
+	// rejects before ever reaching the handler/SMS client.
+	rec := httptest.NewRecorder()
+	servers.Hidden.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhooks/kratos/sms", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /webhooks/kratos/sms status = %d, want 401 (no webhook secret header)", rec.Code)
+	}
+
+	// With the correct secret, the request reaches the handler; a.SMS is
+	// disabled (no SEVEN_* env set) so Send logs instead of calling
+	// seven.io.
+	authedRec := httptest.NewRecorder()
+	authedReq := httptest.NewRequest(
+		http.MethodPost,
+		"/webhooks/kratos/sms",
+		bytes.NewBufferString(`{"to":"+15550001234","body":"your code is 123456"}`),
+	)
+	authedReq.Header.Set("X-Courier-Webhook-Secret", "test-webhook-secret")
+	authedReq.Header.Set("Content-Type", "application/json")
+	servers.Hidden.Handler.ServeHTTP(authedRec, authedReq)
+
+	if authedRec.Code != http.StatusNoContent {
+		t.Errorf("POST /webhooks/kratos/sms status = %d, want 204 (valid secret + body)", authedRec.Code)
 	}
 }
 
@@ -163,11 +235,12 @@ func TestBuildServers_DatabaseAndKratosEnabled_ProtectedRouterRequiresAuth(t *te
 	t.Parallel()
 
 	env := config.EnvVars{
-		Env:             "production",
-		LogLevel:        "info",
-		DatabasePath:    filepath.Join(t.TempDir(), "test.db"),
-		KratosPublicURL: "http://127.0.0.1:4433",
-		KratosAdminURL:  "http://127.0.0.1:4434",
+		Env:                        "production",
+		LogLevel:                   "info",
+		DatabasePath:               filepath.Join(t.TempDir(), "test.db"),
+		KratosPublicURL:            "http://127.0.0.1:4433",
+		KratosAdminURL:             "http://127.0.0.1:4434",
+		KratosCourierWebhookSecret: "test-webhook-secret",
 	}
 
 	a, err := app.Bootstrap(t.Context(), env)

@@ -111,6 +111,16 @@ tasks:
         cmds:
             - docker compose -f deploy/kratos/docker-compose.kratos.yml down
 
+    kratos:up:app:
+        desc: Start the local dev Kratos stack PLUS unwrap-gift itself as a container (see docker-compose.app.yml — needed on OrbStack for the courier webhook to actually deliver)
+        cmds:
+            - docker compose -f deploy/kratos/docker-compose.kratos.yml -f deploy/kratos/docker-compose.app.yml up --wait --build
+
+    kratos:down:app:
+        desc: Stop the local dev Kratos stack started via kratos:up:app
+        cmds:
+            - docker compose -f deploy/kratos/docker-compose.kratos.yml -f deploy/kratos/docker-compose.app.yml down
+
     kratos:logs:
         desc: Tail logs from the local dev Ory Kratos stack
         cmds:

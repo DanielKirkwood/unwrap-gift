@@ -1,5 +1,5 @@
 {
-  "$id": "https://schemas.ory.sh/presets/kratos/identity.email.schema.json",
+  "$id": "https://schemas.unwrap-gift.dev/identity.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Person",
   "type": "object",
@@ -7,26 +7,23 @@
     "traits": {
       "type": "object",
       "properties": {
-        "email": {
+        "phone": {
           "type": "string",
-          "format": "email",
-          "title": "E-Mail",
+          "format": "tel",
+          "title": "Phone Number",
           "ory.sh/kratos": {
             "credentials": {
-              "password": {
-                "identifier": true
-              }
-            },
-            "verification": {
-              "via": "email"
-            },
-            "recovery": {
-              "via": "email"
+              "code": { "identifier": true, "via": "sms" }
             }
           }
+        },
+        "full_name": {
+          "type": "string",
+          "title": "Full Name",
+          "minLength": 1
         }
       },
-      "required": ["email"],
+      "required": ["phone", "full_name"],
       "additionalProperties": false
     }
   }

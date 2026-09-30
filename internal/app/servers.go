@@ -32,9 +32,10 @@ type Servers struct {
 // them — that's cmd/start.go's job.
 //
 // Each optional api.RouterDeps field (Auth, Authz, Widgets/WidgetsAdapter,
-// Identities/IdentitiesAdapter) is wired only when its backing feature
-// (kratos, keto, database) is enabled in a.Registry; otherwise it's left
-// nil, and the router constructors in internal/api skip the corresponding
+// Identities/IdentitiesAdapter, CourierWebhookAuth/CourierSMS/
+// CourierAdapter) is wired only when its backing feature (kratos, keto,
+// database) is enabled in a.Registry; otherwise it's left nil, and the
+// router constructors in internal/api skip the corresponding
 // middleware/routes.
 func BuildServers(a *App) (*Servers, error) {
 	serviceFeature, _ := a.Registry.Feature("service")
@@ -47,6 +48,7 @@ func BuildServers(a *App) (*Servers, error) {
 	}
 
 	kratosFeature, _ := a.Registry.Feature("kratos")
+	kratosCfg, _ := kratosFeature.Config.(config.KratosConfig)
 	if kratosFeature.Enabled {
 		deps.Auth = api.AuthenticationMiddleware(a.Kratos)
 		deps.Identities = a.Kratos
@@ -63,6 +65,10 @@ func BuildServers(a *App) (*Servers, error) {
 				},
 			},
 		}
+
+		deps.CourierWebhookAuth = api.CourierWebhookAuthMiddleware(kratosCfg.CourierWebhookSecret)
+		deps.CourierSMS = a.SMS
+		deps.CourierAdapter = api.Adapter{Logger: a.Logger, ErrorsMap: api.ErrorsMap{}}
 	}
 
 	ketoFeature, _ := a.Registry.Feature("keto")

@@ -1,0 +1,57 @@
+# Optional addition to docker-compose.kratos.yml: runs unwrap-gift itself
+# as a container on the same network as Kratos, instead of on the host.
+# Use this to exercise the courier webhook path for real — see
+# deploy/kratos/README.md's "Courier SMS webhook" section: on OrbStack,
+# Kratos's courier can't reach a host-bound unwrap-gift via
+# host.docker.internal at all (a hardcoded SSRF guard blocks OrbStack's
+# special forwarding address), but container-to-container delivery works
+# exactly like production's http://unwrap-gift:8082 target — verified
+# during this feature's e2e spike.
+#
+# Start both files together (this redefines the `kratos` network with a
+# fixed subnet, and overrides the `kratos` service's `extra_hosts` to
+# point host.docker.internal at this container's static IP instead of
+# host-gateway — so kratos.yml itself needs no changes):
+#
+#   task kratos:down     # if already running without the fixed subnet below
+#   task kratos:up:app
+#
+# unwrap-gift is then reachable at the same host ports task run would use
+# (:8080/:8081/:8082) — but the courier webhook now actually delivers.
+
+name: unwrap-gift-kratos
+
+services:
+  kratos:
+    # !override, not a plain list: Compose merges (appends to) list fields
+    # by default, which would leave BOTH this and the base file's
+    # "host.docker.internal:host-gateway" entry present — two conflicting
+    # /etc/hosts lines for the same hostname, an ambiguous double mapping.
+    # !override replaces the list outright instead.
+    extra_hosts: !override
+      - "host.docker.internal:172.28.0.10"
+
+  unwrap-gift:
+    build:
+      context: ../..
+    depends_on:
+      - kratos
+    environment:
+      ENV: development
+      LOG_LEVEL: debug
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      KRATOS_COURIER_WEBHOOK_SECRET: dev-courier-webhook-secret-not-secure
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+    networks:
+      kratos:
+        ipv4_address: 172.28.0.10
+
+networks:
+  kratos:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

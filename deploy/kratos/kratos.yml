@@ -23,8 +23,8 @@ selfservice:
     - http://127.0.0.1:4455
 
   methods:
-    password:
-      enabled: true
+    code:
+      passwordless_enabled: true
 
   flows:
     error:
@@ -83,10 +83,63 @@ identity:
     - id: default
       url: file:///etc/config/kratos/identity.schema.json
 
+# Kratos's outbound HTTP client blocks requests to private/internal IP
+# ranges by default — an SSRF hardening default. Our own courier webhook is
+# deliberately an internal target (a container-network hostname in
+# production, host.docker.internal in dev), so that default is relaxed for
+# this self-hosted, single-tenant deployment. NOTE: this alone does not
+# cover courier.channels' own outbound guard (see the GOTCHA on the `sms`
+# channel below) — it only affects clients.http's general-purpose client.
+clients:
+  http:
+    disallow_private_ip_ranges: false
+
 courier:
   smtp:
     # oryd/mailslurper:latest-smtps listens on 1025 with *implicit* TLS
     # (confirmed via its own startup log: "SMTP listener running on SSL
     # 0.0.0.0:1025") — smtps://, not smtp://, and skip_ssl_verify since it
-    # uses a self-signed dev cert.
+    # uses a self-signed dev cert. Kept even though no email templates are
+    # sent anymore — the courier worker may require a valid SMTP config to
+    # start at all (see deploy/kratos/README.md).
     connection_uri: smtps://test:test@mailslurper:1025/?skip_ssl_verify=true
+  # GOTCHA (discovered empirically — see this plan's Task 10 e2e spike):
+  # `courier.sms.request_config` (the shape External Documentation's Ory
+  # self-hosted doc page shows) is accepted by schema validation but never
+  # actually dispatches on this Kratos version — no request is ever sent,
+  # no error is logged even at trace level, and the message just sits
+  # "abandoned" after retries. `courier.channels` (an array, `type: http`)
+  # is the shape that actually works for self-hosted Kratos v1.3.x — this
+  # is the format Ory's own SMS setup guide uses, not the "self-hosted"
+  # page's request_config example.
+  channels:
+    - id: sms
+      type: http
+      request_config:
+        url: http://host.docker.internal:8082/webhooks/kratos/sms
+        method: POST
+        body: file:///etc/config/kratos/login_code.sms.jsonnet
+        headers:
+          Content-Type: application/json
+        auth:
+          type: api_key
+          config:
+            name: X-Courier-Webhook-Secret
+            value: dev-courier-webhook-secret-not-secure
+            in: header
+  templates:
+    login_code:
+      valid:
+        sms:
+          body:
+            plaintext: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZSBpczoge3sgLkxvZ2luQ29kZSB9fQ=="
+        # Kratos's own config schema requires a login_code.valid.email
+        # template even though this identity schema has no email trait and
+        # the code method here is SMS-only (via: sms). This is never
+        # rendered or sent — no identity ever has an email address to send
+        # it to — but the config fails schema validation without it.
+        email:
+          subject: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZQ=="
+          body:
+            plaintext: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZSBpczoge3sgLkxvZ2luQ29kZSB9fQ=="
+            html: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZSBpczoge3sgLkxvZ2luQ29kZSB9fQ=="
