@@ -43,21 +43,32 @@ func TestResolveFeatureEnabledState(t *testing.T) {
 		{
 			name: "keto enabled once both its own env and kratos are satisfied",
 			env: config.EnvVars{
-				KratosPublicURL: "http://kratos.public",
-				KratosAdminURL:  "http://kratos.admin",
-				KetoReadURL:     "http://keto.read",
-				KetoWriteURL:    "http://keto.write",
+				KratosPublicURL:            "http://kratos.public",
+				KratosAdminURL:             "http://kratos.admin",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+				KetoReadURL:                "http://keto.read",
+				KetoWriteURL:               "http://keto.write",
 			},
 			wantEnabled: map[string]bool{"kratos": true, "keto": true},
 		},
 		{
 			name: "keto disabled when its own env is missing, even with kratos enabled",
 			env: config.EnvVars{
-				KratosPublicURL: "http://kratos.public",
-				KratosAdminURL:  "http://kratos.admin",
+				KratosPublicURL:            "http://kratos.public",
+				KratosAdminURL:             "http://kratos.admin",
+				KratosCourierWebhookSecret: "test-webhook-secret",
 			},
 			wantEnabled: map[string]bool{"kratos": true, "keto": false},
 			wantReason:  map[string]string{"keto": "missing required env: KetoReadURL"},
+		},
+		{
+			name: "kratos disabled when the courier webhook secret is missing, even with its other env set",
+			env: config.EnvVars{
+				KratosPublicURL: "http://kratos.public",
+				KratosAdminURL:  "http://kratos.admin",
+			},
+			wantEnabled: map[string]bool{"kratos": false},
+			wantReason:  map[string]string{"kratos": "missing required env: KratosCourierWebhookSecret"},
 		},
 		{
 			name: "keto disabled when kratos is disabled, even with its own env set",
@@ -71,11 +82,12 @@ func TestResolveFeatureEnabledState(t *testing.T) {
 		{
 			name: "DISABLE_FEATURES forces a feature off despite satisfied requirements",
 			env: config.EnvVars{
-				KratosPublicURL: "http://kratos.public",
-				KratosAdminURL:  "http://kratos.admin",
-				KetoReadURL:     "http://keto.read",
-				KetoWriteURL:    "http://keto.write",
-				DisableFeatures: "kratos",
+				KratosPublicURL:            "http://kratos.public",
+				KratosAdminURL:             "http://kratos.admin",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+				KetoReadURL:                "http://keto.read",
+				KetoWriteURL:               "http://keto.write",
+				DisableFeatures:            "kratos",
 			},
 			wantEnabled: map[string]bool{"kratos": false, "keto": false},
 			wantReason: map[string]string{

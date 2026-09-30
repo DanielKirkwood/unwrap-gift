@@ -104,10 +104,11 @@ func TestBootstrapKratosEnabled(t *testing.T) {
 	t.Parallel()
 
 	env := config.EnvVars{
-		Env:             "production",
-		LogLevel:        "info",
-		KratosPublicURL: "http://127.0.0.1:4433",
-		KratosAdminURL:  "http://127.0.0.1:4434",
+		Env:                        "production",
+		LogLevel:                   "info",
+		KratosPublicURL:            "http://127.0.0.1:4433",
+		KratosAdminURL:             "http://127.0.0.1:4434",
+		KratosCourierWebhookSecret: "test-webhook-secret",
 	}
 
 	a, err := app.Bootstrap(t.Context(), env)
@@ -120,7 +121,7 @@ func TestBootstrapKratosEnabled(t *testing.T) {
 		t.Fatal("kratos feature not registered")
 	}
 	if !kratosFeature.Enabled {
-		t.Error("kratos feature Enabled = false, want true (KRATOS_*_URL set)")
+		t.Error("kratos feature Enabled = false, want true (KRATOS_*_URL/KRATOS_COURIER_WEBHOOK_SECRET set)")
 	}
 	if a.Kratos == nil {
 		t.Fatal("Kratos = nil, want non-nil")

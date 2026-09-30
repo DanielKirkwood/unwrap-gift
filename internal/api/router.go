@@ -36,6 +36,15 @@ type RouterDeps struct {
 	Identities        IdentityAdmin
 	IdentitiesAdapter Adapter
 
+	// CourierWebhookAuth, CourierSMS, and CourierAdapter, when CourierSMS is
+	// non-nil, mount the Kratos courier's outgoing-SMS webhook on the hidden
+	// router, in its own route group (NOT behind Auth/Authz — the caller is
+	// Kratos itself). All three are set only when the kratos feature is
+	// enabled.
+	CourierWebhookAuth func(http.Handler) http.Handler
+	CourierSMS         SMSSender
+	CourierAdapter     Adapter
+
 	// Widgets and WidgetsAdapter, when non-nil, mount the widget CRUD
 	// example endpoints on the protected router. Both are left nil when the
 	// database feature is disabled.
@@ -84,6 +93,15 @@ func NewHiddenRouter(deps RouterDeps) *chi.Mux {
 		}
 		if deps.Identities != nil {
 			MountIdentities(r, deps.Identities, deps.IdentitiesAdapter)
+		}
+	})
+
+	r.Group(func(r chi.Router) {
+		if deps.CourierWebhookAuth != nil {
+			r.Use(deps.CourierWebhookAuth)
+		}
+		if deps.CourierSMS != nil {
+			MountCourierWebhook(r, deps.CourierSMS, deps.CourierAdapter)
 		}
 	})
 

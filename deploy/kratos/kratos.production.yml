@@ -33,8 +33,8 @@ selfservice:
     - https://login.${DOMAIN}
 
   methods:
-    password:
-      enabled: true
+    code:
+      passwordless_enabled: true
 
   flows:
     error:
@@ -105,6 +105,44 @@ session:
     domain: ${DOMAIN}
     same_site: Lax
 
+# See kratos.yml's matching block — an SSRF hardening default that would
+# otherwise block Kratos's outbound calls to unwrap-gift's container-network
+# hostname below.
+clients:
+  http:
+    disallow_private_ip_ranges: false
+
 courier:
   smtp:
     connection_uri: ${SMTP_CONNECTION_URI}
+  # See kratos.yml's GOTCHA comment on this same block: courier.channels
+  # (not courier.sms.request_config) is the shape that actually dispatches
+  # on this Kratos version.
+  channels:
+    - id: sms
+      type: http
+      request_config:
+        url: http://unwrap-gift:8082/webhooks/kratos/sms
+        method: POST
+        body: file:///etc/config/kratos/login_code.sms.jsonnet
+        headers:
+          Content-Type: application/json
+        auth:
+          type: api_key
+          config:
+            name: X-Courier-Webhook-Secret
+            value: ${KRATOS_COURIER_WEBHOOK_SECRET}
+            in: header
+  templates:
+    login_code:
+      valid:
+        sms:
+          body:
+            plaintext: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZSBpczoge3sgLkxvZ2luQ29kZSB9fQ=="
+        # See kratos.yml's matching comment — required by schema validation
+        # even though this identity schema has no email trait.
+        email:
+          subject: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZQ=="
+          body:
+            plaintext: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZSBpczoge3sgLkxvZ2luQ29kZSB9fQ=="
+            html: "base64://WW91ciBTZWNyZXQgU2FudGEgbG9naW4gY29kZSBpczoge3sgLkxvZ2luQ29kZSB9fQ=="

@@ -32,11 +32,16 @@ type OtelConfig struct {
 }
 
 // KratosConfig configures the Ory Kratos client kratosclient.New builds.
-// It's only built once the "kratos" feature is enabled, i.e. once both
-// KratosPublicURL and KratosAdminURL are set.
+// It's only built once the "kratos" feature is enabled, i.e. once
+// KratosPublicURL, KratosAdminURL, and KratosCourierWebhookSecret are all
+// set. CourierWebhookSecret also configures
+// api.CourierWebhookAuthMiddleware, which protects the courier webhook
+// mounted on the hidden router only when the kratos feature is enabled
+// (see internal/app/servers.go).
 type KratosConfig struct {
-	PublicURL string
-	AdminURL  string
+	PublicURL            string
+	AdminURL             string
+	CourierWebhookSecret string
 }
 
 // KetoConfig configures the Ory Keto client ketoclient.New builds. It's
@@ -93,9 +98,13 @@ func DefaultRegistry() *Registry {
 
 	r.Register(Feature{
 		Name:        "kratos",
-		RequiredEnv: []string{"KratosPublicURL", "KratosAdminURL"},
+		RequiredEnv: []string{"KratosPublicURL", "KratosAdminURL", "KratosCourierWebhookSecret"},
 		Build: func(e EnvVars) any {
-			return KratosConfig{PublicURL: e.KratosPublicURL, AdminURL: e.KratosAdminURL}
+			return KratosConfig{
+				PublicURL:            e.KratosPublicURL,
+				AdminURL:             e.KratosAdminURL,
+				CourierWebhookSecret: e.KratosCourierWebhookSecret,
+			}
 		},
 	})
 

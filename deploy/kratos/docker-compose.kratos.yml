@@ -52,9 +52,12 @@ services:
     ports:
       - "4433:4433" # public API — matches KRATOS_PUBLIC_URL in .env
       - "4434:4434" # admin API — matches KRATOS_ADMIN_URL in .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./kratos.yml:/etc/config/kratos/kratos.yml
       - ./identity.schema.json:/etc/config/kratos/identity.schema.json
+      - ./login_code.sms.jsonnet:/etc/config/kratos/login_code.sms.jsonnet
     command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
     networks:
       - kratos

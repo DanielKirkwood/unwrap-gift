@@ -27,8 +27,9 @@ type EnvVars struct {
 
 	OtelExporterURL string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 
-	KratosPublicURL string `env:"KRATOS_PUBLIC_URL"`
-	KratosAdminURL  string `env:"KRATOS_ADMIN_URL"`
+	KratosPublicURL            string `env:"KRATOS_PUBLIC_URL"`
+	KratosAdminURL             string `env:"KRATOS_ADMIN_URL"`
+	KratosCourierWebhookSecret string `env:"KRATOS_COURIER_WEBHOOK_SECRET"`
 
 	KetoReadURL  string `env:"KETO_READ_URL"`
 	KetoWriteURL string `env:"KETO_WRITE_URL"`
