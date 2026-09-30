@@ -152,8 +152,8 @@ Both real draws (family, friends) run end-to-end: organiser creates a drawer, ad
 | # | Phase | Description | Status | Parallel | Depends | PRP Plan |
 |---|-------|-------------|--------|----------|---------|----------|
 | 1 | Data model & migrations | Drawer, Member, Relationship, Draw, Assignment, Wishlist/WishlistItem tables + sqlc queries + DB tests | in-progress | with 2, 3 | - | [#2](https://github.com/DanielKirkwood/unwrap-gift/issues/2) · [plan](../plans/secret-santa-data-model.plan.md) |
-| 2 | SMS-code auth via Kratos + seven.io | New identity schema (phone + full name), courier reconfigured to call seven.io, spike to confirm feasibility | pending | with 1, 3 | - | [#3](https://github.com/DanielKirkwood/unwrap-gift/issues/3) |
-| 3 | SMS client (seven.io) | `internal/clients/smsclient` + `sms` feature flag wiring | pending | with 1, 2 | - | [#4](https://github.com/DanielKirkwood/unwrap-gift/issues/4) |
+| 2 | SMS-code auth via Kratos + seven.io | New identity schema (phone + full name), courier reconfigured to call seven.io, spike to confirm feasibility | in-progress | with 1 | 3 | [#3](https://github.com/DanielKirkwood/unwrap-gift/issues/3) · [plan](../plans/secret-santa-sms-auth.plan.md) |
+| 3 | SMS client (seven.io) | `internal/clients/smsclient` + `sms` feature flag wiring | in-progress | with 1, 2 | - | [#4](https://github.com/DanielKirkwood/unwrap-gift/issues/4) · [plan](../plans/secret-santa-sms-client.plan.md) |
 | 4 | Assignment engine | Randomized backtracking solver honoring exclusions + last-N-draws history, heavily unit-tested incl. no-solution case | pending | - | 1 | [#5](https://github.com/DanielKirkwood/unwrap-gift/issues/5) |
 | 5 | Organiser API | Drawer/Member/Relationship CRUD, Draw creation + run-draw endpoint (hidden router, Auth+Authz) | pending | with 6 | 1, 4 | [#6](https://github.com/DanielKirkwood/unwrap-gift/issues/6) |
 | 6 | Participant API | Wishlist CRUD, self-serve (protected router, Auth only) | pending | with 5 | 1, 2 | [#7](https://github.com/DanielKirkwood/unwrap-gift/issues/7) |

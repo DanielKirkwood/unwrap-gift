@@ -33,6 +33,9 @@ type EnvVars struct {
 	KetoReadURL  string `env:"KETO_READ_URL"`
 	KetoWriteURL string `env:"KETO_WRITE_URL"`
 
+	SevenAPIKey   string `env:"SEVEN_API_KEY"`
+	SevenSenderID string `env:"SEVEN_SENDER_ID"`
+
 	// KetoSeedAdminIdentityID is the Kratos identity ID `db seed` grants
 	// the Role:admin relation tuple to. Not part of KetoConfig/the keto
 	// feature's readiness — it's only consumed directly by `db seed`, the

@@ -83,6 +83,20 @@ func TestResolveFeatureEnabledState(t *testing.T) {
 				"keto":   "requires disabled feature: kratos",
 			},
 		},
+		{
+			name: "sms enabled once both seven.io vars are set",
+			env: config.EnvVars{
+				SevenAPIKey:   "test-key",
+				SevenSenderID: "TestSender",
+			},
+			wantEnabled: map[string]bool{"sms": true},
+		},
+		{
+			name:        "sms disabled when sender ID is missing, even with api key set",
+			env:         config.EnvVars{SevenAPIKey: "test-key"},
+			wantEnabled: map[string]bool{"sms": false},
+			wantReason:  map[string]string{"sms": "missing required env: SevenSenderID"},
+		},
 	}
 
 	for _, tt := range tests {
