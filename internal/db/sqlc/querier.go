@@ -30,6 +30,7 @@ type Querier interface {
 	GetDrawer(ctx context.Context, id int64) (Drawer, error)
 	GetMember(ctx context.Context, id int64) (Member, error)
 	GetWidget(ctx context.Context, id int64) (Widget, error)
+	GetWishlistItem(ctx context.Context, id int64) (WishlistItem, error)
 	ListAssignmentsByDraw(ctx context.Context, drawID int64) ([]Assignment, error)
 	ListDrawersByOrganiser(ctx context.Context, organiserKratosIdentityID string) ([]Drawer, error)
 	ListDrawsByDrawer(ctx context.Context, drawerID int64) ([]Draw, error)

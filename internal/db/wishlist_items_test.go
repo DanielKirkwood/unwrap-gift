@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/DanielKirkwood/unwrap-gift/internal/db"
@@ -27,6 +28,14 @@ func TestWishlistItemQueries_CRUD(t *testing.T) {
 	}
 	if created.ItemName != "Board game" {
 		t.Errorf("CreateWishlistItem() item_name = %q, want Board game", created.ItemName)
+	}
+
+	fetched, err := store.Queries.GetWishlistItem(t.Context(), created.ID)
+	if err != nil {
+		t.Fatalf("GetWishlistItem() error = %v, want nil", err)
+	}
+	if fetched.ID != created.ID || fetched.PhoneNumber != created.PhoneNumber {
+		t.Errorf("GetWishlistItem() = %+v, want id/phone to match created", fetched)
 	}
 
 	withoutOptional, err := store.Queries.CreateWishlistItem(t.Context(), sqlc.CreateWishlistItemParams{
@@ -63,6 +72,11 @@ func TestWishlistItemQueries_CRUD(t *testing.T) {
 
 	if deleteErr := store.Queries.DeleteWishlistItem(t.Context(), created.ID); deleteErr != nil {
 		t.Fatalf("DeleteWishlistItem() error = %v, want nil", deleteErr)
+	}
+
+	_, getAfterDeleteErr := store.Queries.GetWishlistItem(t.Context(), created.ID)
+	if !errors.Is(getAfterDeleteErr, sql.ErrNoRows) {
+		t.Errorf("GetWishlistItem() after delete error = %v, want sql.ErrNoRows", getAfterDeleteErr)
 	}
 
 	listAfterDelete, err := store.Queries.ListWishlistItemsByPhoneNumber(t.Context(), "+447700900000")

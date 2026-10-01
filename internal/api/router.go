@@ -51,6 +51,13 @@ type RouterDeps struct {
 	Widgets        WidgetStore
 	WidgetsAdapter Adapter
 
+	// WishlistItems and WishlistItemsAdapter, when non-nil, mount the
+	// participant wishlist CRUD endpoints on the protected router, scoped to
+	// the caller's own phone trait. Both are left nil unless the database
+	// and kratos features are both enabled.
+	WishlistItems        WishlistItemStore
+	WishlistItemsAdapter Adapter
+
 	// Drawers/DrawersAdapter, Members/MembersAdapter,
 	// Relationships/RelationshipsAdapter, and Draws/DrawsAdapter, when
 	// non-nil, mount the Secret Santa organiser API endpoints on the
@@ -73,8 +80,8 @@ func NewPublicRouter(deps RouterDeps) *chi.Mux {
 
 // NewProtectedRouter builds the protected router: authenticated but
 // non-admin endpoints. Every route other than /health/* runs behind
-// deps.Auth — the widget CRUD example endpoints are the first (and so far
-// only) routes mounted here.
+// deps.Auth — the widget CRUD example endpoints and the participant
+// wishlist item endpoints are mounted here.
 func NewProtectedRouter(deps RouterDeps) *chi.Mux {
 	r := newRouter("protected", deps)
 
@@ -84,6 +91,9 @@ func NewProtectedRouter(deps RouterDeps) *chi.Mux {
 		}
 		if deps.Widgets != nil {
 			MountWidgets(r, deps.Widgets, deps.WidgetsAdapter)
+		}
+		if deps.WishlistItems != nil {
+			MountWishlistItems(r, deps.WishlistItems, deps.WishlistItemsAdapter)
 		}
 	})
 

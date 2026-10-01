@@ -108,6 +108,10 @@ func BuildServers(a *App) (*Servers, error) {
 		}
 	}
 
+	if dbFeature.Enabled && kratosFeature.Enabled {
+		wireWishlistItems(&deps, a)
+	}
+
 	if dbFeature.Enabled && kratosFeature.Enabled && ketoFeature.Enabled {
 		wireOrganiserAPI(&deps, a)
 	}
@@ -137,6 +141,27 @@ func (s *Servers) Shutdown(ctx context.Context) error {
 	}
 
 	return joined
+}
+
+// wireWishlistItems sets deps.WishlistItems/WishlistItemsAdapter — an
+// authenticated (not authorized) resource on the protected router, same
+// shape as Widgets, except scoped by the caller's own phone trait instead
+// of being global. Needs kratos (to resolve identity.Traits["phone"]) but
+// not keto (no deps.Authz group involved). Called only when database and
+// kratos are both enabled.
+func wireWishlistItems(deps *api.RouterDeps, a *App) {
+	deps.WishlistItems = storeWishlistItems{store: a.Store}
+	deps.WishlistItemsAdapter = api.Adapter{
+		Logger: a.Logger,
+		ErrorsMap: api.ErrorsMap{
+			{
+				Match: api.ErrWishlistItemNotFound,
+				Problem: api.Problem{
+					Status: http.StatusNotFound, Title: titleNotFound, Detail: "wishlist item not found",
+				},
+			},
+		},
+	}
 }
 
 // wireOrganiserAPI sets deps.Drawers/Members/Relationships/Draws and their

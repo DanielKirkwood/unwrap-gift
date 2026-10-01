@@ -50,6 +50,25 @@ func (q *Queries) DeleteWishlistItem(ctx context.Context, id int64) error {
 	return err
 }
 
+const getWishlistItem = `-- name: GetWishlistItem :one
+SELECT id, phone_number, item_name, size, url, created_at, updated_at FROM wishlist_items WHERE id = ?
+`
+
+func (q *Queries) GetWishlistItem(ctx context.Context, id int64) (WishlistItem, error) {
+	row := q.db.QueryRowContext(ctx, getWishlistItem, id)
+	var i WishlistItem
+	err := row.Scan(
+		&i.ID,
+		&i.PhoneNumber,
+		&i.ItemName,
+		&i.Size,
+		&i.Url,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listWishlistItemsByPhoneNumber = `-- name: ListWishlistItemsByPhoneNumber :many
 SELECT id, phone_number, item_name, size, url, created_at, updated_at FROM wishlist_items WHERE phone_number = ? ORDER BY id
 `

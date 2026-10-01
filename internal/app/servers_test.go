@@ -355,3 +355,81 @@ func TestBuildServers_DatabaseAndKratosEnabled_ProtectedRouterRequiresAuth(t *te
 		t.Errorf("GET /widgets status = %d, want 401 (no session cookie)", rec.Code)
 	}
 }
+
+// TestBuildServers_WishlistItems_RequiresDatabaseAndKratos covers
+// wireWishlistItems appearing only when database and kratos are both
+// enabled — not just database alone (unlike Widgets, which needs no
+// identity) and not requiring keto at all (unlike the organiser API) —
+// mirroring TestBuildServers_OrganiserAPI_RequiresAllThreeFeatures' shape.
+// No cookie is sent, so a mounted route answers 401 (AuthenticationMiddleware
+// rejecting before reaching any store), while an unmounted route answers
+// 404 — no live Kratos instance is needed for either outcome.
+func TestBuildServers_WishlistItems_RequiresDatabaseAndKratos(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		env         config.EnvVars
+		wantMounted bool
+	}{
+		{
+			name:        "all disabled",
+			env:         config.EnvVars{Env: "development", LogLevel: "debug"},
+			wantMounted: false,
+		},
+		{
+			name: "only database enabled",
+			env: config.EnvVars{
+				Env: "development", LogLevel: "debug",
+				DatabasePath: filepath.Join(t.TempDir(), "test.db"),
+			},
+			wantMounted: false,
+		},
+		{
+			name: "database and kratos enabled",
+			env: config.EnvVars{
+				Env: "production", LogLevel: "info",
+				DatabasePath:               filepath.Join(t.TempDir(), "test.db"),
+				KratosPublicURL:            "http://127.0.0.1:4433",
+				KratosAdminURL:             "http://127.0.0.1:4434",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+			},
+			wantMounted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := app.Bootstrap(t.Context(), tt.env)
+			if err != nil {
+				t.Fatalf("Bootstrap() error = %v, want nil", err)
+			}
+			if a.Store != nil {
+				t.Cleanup(func() { _ = a.Store.Close() })
+				if migrateErr := db.Migrate(t.Context(), a.Store.DB); migrateErr != nil {
+					t.Fatalf("Migrate() error = %v, want nil", migrateErr)
+				}
+			}
+
+			servers, err := app.BuildServers(a)
+			if err != nil {
+				t.Fatalf("BuildServers() error = %v, want nil", err)
+			}
+
+			rec := httptest.NewRecorder()
+			servers.Protected.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/wishlist-items", nil))
+
+			gotMounted := rec.Code != http.StatusNotFound
+			if gotMounted != tt.wantMounted {
+				t.Errorf(
+					"GET /wishlist-items status = %d, mounted = %v, want mounted = %v",
+					rec.Code,
+					gotMounted,
+					tt.wantMounted,
+				)
+			}
+		})
+	}
+}
