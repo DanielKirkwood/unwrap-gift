@@ -18,6 +18,12 @@ const (
 	shutdownTimeout      = 10 * time.Second
 )
 
+// Problem titles reused across several of BuildServers' ErrorsMap entries.
+const (
+	titleNotFound = "Not Found"
+	titleConflict = "Conflict"
+)
+
 // Servers holds the three independently-bound HTTP servers: public,
 // protected, and hidden. Each wraps its own *chi.Mux (built in internal/api)
 // with otelhttp for request metrics.
@@ -94,12 +100,16 @@ func BuildServers(a *App) (*Servers, error) {
 					Match: api.ErrWidgetNotFound,
 					Problem: api.Problem{
 						Status: http.StatusNotFound,
-						Title:  "Not Found",
+						Title:  titleNotFound,
 						Detail: "widget not found",
 					},
 				},
 			},
 		}
+	}
+
+	if dbFeature.Enabled && kratosFeature.Enabled && ketoFeature.Enabled {
+		wireOrganiserAPI(&deps, a)
 	}
 
 	return &Servers{
@@ -127,6 +137,108 @@ func (s *Servers) Shutdown(ctx context.Context) error {
 	}
 
 	return joined
+}
+
+// wireOrganiserAPI sets deps.Drawers/Members/Relationships/Draws and their
+// adapters — Phase 5's organiser API, mounted on the hidden router behind
+// the same Auth+Authz group as MountIdentities (reusing the existing
+// global admin Keto role, not a new per-drawer authorization scheme — see
+// the Phase 5 plan's Decisions table). Called only when database, kratos,
+// and keto are all enabled.
+func wireOrganiserAPI(deps *api.RouterDeps, a *App) {
+	deps.Drawers = storeDrawers{store: a.Store}
+	deps.DrawersAdapter = api.Adapter{
+		Logger: a.Logger,
+		ErrorsMap: api.ErrorsMap{
+			{
+				Match:   api.ErrDrawerNotFound,
+				Problem: api.Problem{Status: http.StatusNotFound, Title: titleNotFound, Detail: "drawer not found"},
+			},
+		},
+	}
+
+	deps.Members = storeMembers{store: a.Store}
+	deps.MembersAdapter = api.Adapter{
+		Logger: a.Logger,
+		ErrorsMap: api.ErrorsMap{
+			{
+				Match:   api.ErrMemberNotFound,
+				Problem: api.Problem{Status: http.StatusNotFound, Title: titleNotFound, Detail: "member not found"},
+			},
+			{
+				Match: api.ErrMemberPhoneAlreadyExists,
+				Problem: api.Problem{
+					Status: http.StatusConflict, Title: titleConflict,
+					Detail: "a member with this phone number already exists in this drawer",
+				},
+			},
+		},
+	}
+
+	deps.Relationships = storeRelationships{store: a.Store}
+	deps.RelationshipsAdapter = api.Adapter{
+		Logger: a.Logger,
+		ErrorsMap: api.ErrorsMap{
+			{
+				Match: api.ErrRelationshipNotFound,
+				Problem: api.Problem{
+					Status: http.StatusNotFound,
+					Title:  titleNotFound,
+					Detail: "relationship not found",
+				},
+			},
+			{
+				Match: api.ErrRelationshipSamePhoneNumber,
+				Problem: api.Problem{
+					Status: http.StatusBadRequest,
+					Title:  "Bad Request",
+					Detail: "relationship phone numbers must differ",
+				},
+			},
+			{
+				Match: api.ErrRelationshipAlreadyExists,
+				Problem: api.Problem{
+					Status: http.StatusConflict,
+					Title:  titleConflict,
+					Detail: "relationship already exists for this pair",
+				},
+			},
+		},
+	}
+
+	deps.Draws = storeDraws{store: a.Store}
+	deps.DrawsAdapter = api.Adapter{
+		Logger: a.Logger,
+		ErrorsMap: api.ErrorsMap{
+			{
+				Match:   api.ErrDrawNotFound,
+				Problem: api.Problem{Status: http.StatusNotFound, Title: titleNotFound, Detail: "draw not found"},
+			},
+			{
+				Match: api.ErrDrawAlreadyRun,
+				Problem: api.Problem{
+					Status: http.StatusConflict,
+					Title:  titleConflict,
+					Detail: "draw has already been run",
+				},
+			},
+			{
+				Match: api.ErrNoValidAssignment,
+				Problem: api.Problem{
+					Status: http.StatusConflict, Title: titleConflict,
+					Detail: "no valid assignment exists for this drawer's current members/exclusions/history",
+				},
+			},
+			{
+				Match: api.ErrTooFewMembers,
+				Problem: api.Problem{
+					Status: http.StatusUnprocessableEntity,
+					Title:  "Unprocessable Entity",
+					Detail: "drawer has fewer than two members",
+				},
+			},
+		},
+	}
 }
 
 func newServer(port, name string, handler http.Handler, a *App) *http.Server {

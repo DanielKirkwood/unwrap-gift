@@ -50,6 +50,20 @@ type RouterDeps struct {
 	// database feature is disabled.
 	Widgets        WidgetStore
 	WidgetsAdapter Adapter
+
+	// Drawers/DrawersAdapter, Members/MembersAdapter,
+	// Relationships/RelationshipsAdapter, and Draws/DrawsAdapter, when
+	// non-nil, mount the Secret Santa organiser API endpoints on the
+	// hidden router. All eight are left nil unless the database, kratos,
+	// and keto features are all enabled.
+	Drawers              DrawerStore
+	DrawersAdapter       Adapter
+	Members              MemberStore
+	MembersAdapter       Adapter
+	Relationships        RelationshipStore
+	RelationshipsAdapter Adapter
+	Draws                DrawStore
+	DrawsAdapter         Adapter
 }
 
 // NewPublicRouter builds the public router: the externally-facing surface.
@@ -93,6 +107,18 @@ func NewHiddenRouter(deps RouterDeps) *chi.Mux {
 		}
 		if deps.Identities != nil {
 			MountIdentities(r, deps.Identities, deps.IdentitiesAdapter)
+		}
+		if deps.Drawers != nil {
+			MountDrawers(r, deps.Drawers, deps.DrawersAdapter)
+		}
+		if deps.Members != nil {
+			MountMembers(r, deps.Members, deps.MembersAdapter)
+		}
+		if deps.Relationships != nil {
+			MountRelationships(r, deps.Relationships, deps.RelationshipsAdapter)
+		}
+		if deps.Draws != nil {
+			MountDraws(r, deps.Draws, deps.DrawsAdapter)
 		}
 	})
 

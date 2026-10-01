@@ -35,6 +35,13 @@ type Querier interface {
 	ListDrawsByDrawer(ctx context.Context, drawerID int64) ([]Draw, error)
 	ListMembersByDrawer(ctx context.Context, drawerID int64) ([]Member, error)
 	ListMembersByPhoneNumber(ctx context.Context, phoneNumber string) ([]Member, error)
+	// ListRecentCompletedDrawsByDrawer returns the drawer's most recent draws
+	// that actually produced an assignment ('assigned' or 'notified'
+	// status), excluding the draw currently being run, most-recent-first,
+	// capped at limit. RunDraw uses this to build the history window; the
+	// 'draft' filter keeps an unrelated in-progress draw for the same
+	// drawer from ever being treated as history.
+	ListRecentCompletedDrawsByDrawer(ctx context.Context, arg ListRecentCompletedDrawsByDrawerParams) ([]Draw, error)
 	// ListRelationshipsForPhoneNumber takes the same phone number twice
 	// (PhoneNumberA and PhoneNumberB): it is not a two-number lookup. Passing
 	// different values, or leaving one unset, silently returns only the

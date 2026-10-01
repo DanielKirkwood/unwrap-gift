@@ -98,6 +98,57 @@ func TestNewHiddenRouter_AuthGatesIdentities(t *testing.T) {
 	}
 }
 
+func TestNewHiddenRouter_OrganiserRoutesNilVsSet(t *testing.T) {
+	t.Parallel()
+
+	nilDeps := api.RouterDeps{Logger: slog.Default(), TracerProvider: noop.NewTracerProvider()}
+	nilRouter := api.NewHiddenRouter(nilDeps)
+
+	nilRec := httptest.NewRecorder()
+	nilRouter.ServeHTTP(nilRec, httptest.NewRequest(http.MethodGet, "/drawers", nil))
+	if nilRec.Code != http.StatusNotFound {
+		t.Errorf("GET /drawers with nil Drawers status = %d, want 404", nilRec.Code)
+	}
+
+	setDeps := api.RouterDeps{
+		Logger:               slog.Default(),
+		TracerProvider:       noop.NewTracerProvider(),
+		Drawers:              &fakeDrawerStore{},
+		DrawersAdapter:       api.Adapter{Logger: slog.Default()},
+		Members:              &fakeMemberStore{},
+		MembersAdapter:       api.Adapter{Logger: slog.Default()},
+		Relationships:        &fakeRelationshipStore{},
+		RelationshipsAdapter: api.Adapter{Logger: slog.Default()},
+		Draws:                &fakeDrawStore{},
+		DrawsAdapter:         api.Adapter{Logger: slog.Default()},
+	}
+	setRouter := api.NewHiddenRouter(setDeps)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"drawers list", http.MethodGet, "/drawers"},
+		{"members list", http.MethodGet, "/drawers/1/members/"},
+		{"relationships list", http.MethodGet, "/relationships?phone_number=%2B447700900000"},
+		{"draws list", http.MethodGet, "/drawers/1/draws/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := httptest.NewRecorder()
+			setRouter.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+
+			if rec.Code == http.StatusNotFound {
+				t.Errorf("%s %s status = 404, want mounted (non-404)", tt.method, tt.path)
+			}
+		})
+	}
+}
+
 // blockedIdentityAdmin is only used to satisfy api.IdentityAdmin's type for
 // TestNewHiddenRouter_AuthGatesIdentities — Auth rejects the request before
 // any of its methods would be called.

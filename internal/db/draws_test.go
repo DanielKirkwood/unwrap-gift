@@ -117,3 +117,81 @@ func TestUpdateDrawStatus_RejectsInvalidStatus(t *testing.T) {
 		t.Fatal("UpdateDrawStatus() with invalid status error = nil, want non-nil")
 	}
 }
+
+func TestListRecentCompletedDrawsByDrawer(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	if err := db.Migrate(t.Context(), store.DB); err != nil {
+		t.Fatalf("Migrate() error = %v, want nil", err)
+	}
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	older, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2024, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw(older) error = %v, want nil", err)
+	}
+	if _, statusErr := store.Queries.UpdateDrawStatus(
+		t.Context(), sqlc.UpdateDrawStatusParams{ID: older.ID, Status: "assigned"},
+	); statusErr != nil {
+		t.Fatalf("UpdateDrawStatus(older, assigned) error = %v, want nil", statusErr)
+	}
+
+	mostRecent, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2025, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw(mostRecent) error = %v, want nil", err)
+	}
+	if _, statusErr := store.Queries.UpdateDrawStatus(
+		t.Context(), sqlc.UpdateDrawStatusParams{ID: mostRecent.ID, Status: "assigned"},
+	); statusErr != nil {
+		t.Fatalf("UpdateDrawStatus(mostRecent, assigned) error = %v, want nil", statusErr)
+	}
+
+	// draft is left in 'draft' status (CreateDraw's default) and must never
+	// be treated as history.
+	draft, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw(draft) error = %v, want nil", err)
+	}
+
+	list, err := store.Queries.ListRecentCompletedDrawsByDrawer(
+		t.Context(),
+		sqlc.ListRecentCompletedDrawsByDrawerParams{
+			DrawerID: drawer.ID,
+			ID:       draft.ID,
+			Limit:    1,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListRecentCompletedDrawsByDrawer() error = %v, want nil", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ListRecentCompletedDrawsByDrawer() len = %d, want 1", len(list))
+	}
+	if list[0].ID != mostRecent.ID {
+		t.Errorf(
+			"ListRecentCompletedDrawsByDrawer() = draw %d, want the most recent assigned draw %d",
+			list[0].ID,
+			mostRecent.ID,
+		)
+	}
+}

@@ -1,0 +1,306 @@
+package app //nolint:testpackage // intentional: needs direct access to unexported storeDraws, see newAppTestStore below
+
+// This file is intentionally in package app (not app_test): it needs
+// direct access to the unexported storeDraws type to exercise RunDraw's
+// relax-and-retry orchestration against a real temp SQLite *db.Store — the
+// one deviation from the Widgets precedent (no app/widgets_test.go exists)
+// the Phase 5 plan calls for, since this is genuinely new logic, not CRUD
+// passthrough.
+
+import (
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"go.opentelemetry.io/otel/metric/noop"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/DanielKirkwood/unwrap-gift/internal/api"
+	"github.com/DanielKirkwood/unwrap-gift/internal/assign"
+	"github.com/DanielKirkwood/unwrap-gift/internal/config"
+	"github.com/DanielKirkwood/unwrap-gift/internal/db"
+	"github.com/DanielKirkwood/unwrap-gift/internal/db/sqlc"
+)
+
+// newAppTestStore opens a Store against a fresh temp-dir SQLite file,
+// migrated and closed automatically at test cleanup — the internal/app
+// equivalent of internal/db's newTestStore (unexported there, so not
+// reusable directly from this package).
+func newAppTestStore(t *testing.T) *db.Store {
+	t.Helper()
+
+	cfg := config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "test.db")}
+
+	store, err := db.New(cfg, true, tracenoop.NewTracerProvider(), noop.NewMeterProvider())
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	if migrateErr := db.Migrate(t.Context(), store.DB); migrateErr != nil {
+		t.Fatalf("Migrate() error = %v, want nil", migrateErr)
+	}
+
+	return store
+}
+
+// TestRunDraw_RelaxesHistoryWindowByOne is the single most important
+// behavior in this plan: with a 3-member drawer whose two derangements
+// (D1: A→B→C→A, D2: A→C→B→A) are the only possible full assignments, a
+// history window of 2 (both past draws) forbids every directed pair
+// across both derangements — unsolvable. Relaxing to 1 (dropping the
+// older draw) forbids only D1's pairs, leaving D2 as the unique solution.
+// 3 members are used, not 2, because with only 2 members any single
+// historical pairing already blocks the only non-self giftee either
+// gifter has — relaxing by one could never flip the outcome for N=2 short
+// of discarding history entirely (window 0), which isn't what this test
+// is meant to demonstrate.
+func TestRunDraw_RelaxesHistoryWindowByOne(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	a := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	b := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+	c := createTestMember(t, store, drawer.ID, "Carol", "+447700900002")
+
+	// older past draw: D2 (A→C, C→B, B→A).
+	older := createCompletedDraw(t, store, drawer.ID, time.Date(2024, time.December, 25, 0, 0, 0, 0, time.UTC))
+	createTestAssignment(t, store, older.ID, a.ID, c.ID)
+	createTestAssignment(t, store, older.ID, c.ID, b.ID)
+	createTestAssignment(t, store, older.ID, b.ID, a.ID)
+
+	// most recent past draw: D1 (A→B, B→C, C→A).
+	mostRecent := createCompletedDraw(t, store, drawer.ID, time.Date(2025, time.December, 25, 0, 0, 0, 0, time.UTC))
+	createTestAssignment(t, store, mostRecent.ID, a.ID, b.ID)
+	createTestAssignment(t, store, mostRecent.ID, b.ID, c.ID)
+	createTestAssignment(t, store, mostRecent.ID, c.ID, a.ID)
+
+	current, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{store: store}
+
+	draw, assignments, runErr := s.RunDraw(t.Context(), drawer.ID, current.ID)
+	if runErr != nil {
+		t.Fatalf("RunDraw() error = %v, want nil (should succeed once window relaxes to 1)", runErr)
+	}
+	if draw.Status != drawStatusAssigned {
+		t.Errorf("RunDraw() draw.Status = %q, want %q", draw.Status, drawStatusAssigned)
+	}
+
+	want := map[int64]int64{a.ID: c.ID, c.ID: b.ID, b.ID: a.ID} // D2
+	if len(assignments) != len(want) {
+		t.Fatalf("len(assignments) = %d, want %d", len(assignments), len(want))
+	}
+	for _, as := range assignments {
+		if want[as.GifterMemberID] != as.GifteeMemberID {
+			t.Errorf(
+				"assignment gifter %d -> giftee %d, want giftee %d (D2, the only assignment not fully forbidden at window=1)",
+				as.GifterMemberID,
+				as.GifteeMemberID,
+				want[as.GifterMemberID],
+			)
+		}
+	}
+}
+
+// TestRunDraw_NeverRelaxesExclusions proves the retry loop's relaxation
+// never touches exclusions: with 2 members excluding each other and no
+// history at all, every iteration (window 2, 1, 0) hits the same
+// exclusion-caused infeasibility, and RunDraw must still fail.
+func TestRunDraw_NeverRelaxesExclusions(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	if _, relErr := store.Queries.CreateRelationship(t.Context(), sqlc.CreateRelationshipParams{
+		PhoneNumberA: "+447700900000",
+		PhoneNumberB: "+447700900001",
+	}); relErr != nil {
+		t.Fatalf("CreateRelationship() error = %v, want nil", relErr)
+	}
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{store: store}
+
+	_, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID)
+	if !errors.Is(runErr, api.ErrNoValidAssignment) {
+		t.Errorf("RunDraw() error = %v, want api.ErrNoValidAssignment (exclusions must never relax)", runErr)
+	}
+}
+
+// TestRunDraw_AlreadyRun asserts a second RunDraw call on an already-run
+// draw returns api.ErrDrawAlreadyRun rather than re-computing.
+func TestRunDraw_AlreadyRun(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{store: store}
+
+	if _, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID); runErr != nil {
+		t.Fatalf("first RunDraw() error = %v, want nil", runErr)
+	}
+
+	_, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID)
+	if !errors.Is(runErr, api.ErrDrawAlreadyRun) {
+		t.Errorf("second RunDraw() error = %v, want api.ErrDrawAlreadyRun", runErr)
+	}
+}
+
+// TestPersistAssignment_RaceAgainstConcurrentRun simulates the race two
+// concurrent RunDraw calls on the same draft draw could hit: both pass
+// RunDraw's own draft-status check before either commits, then both reach
+// persistAssignment. This calls persistAssignment directly twice for the
+// same draw — bypassing RunDraw's outer check the way a real race would —
+// to prove the transactional re-check inside persistAssignment reports
+// api.ErrDrawAlreadyRun on the second call instead of an unmapped
+// UNIQUE-constraint error.
+func TestPersistAssignment_RaceAgainstConcurrentRun(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	a := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	b := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{store: store}
+	assignResult := map[assign.MemberID]assign.MemberID{
+		assign.MemberID(a.ID): assign.MemberID(b.ID),
+		assign.MemberID(b.ID): assign.MemberID(a.ID),
+	}
+
+	if _, _, firstErr := s.persistAssignment(t.Context(), draw, assignResult); firstErr != nil {
+		t.Fatalf("first persistAssignment() error = %v, want nil", firstErr)
+	}
+
+	_, _, secondErr := s.persistAssignment(t.Context(), draw, assignResult)
+	if !errors.Is(secondErr, api.ErrDrawAlreadyRun) {
+		t.Errorf(
+			"second persistAssignment() error = %v, want api.ErrDrawAlreadyRun (not an unmapped constraint error)",
+			secondErr,
+		)
+	}
+}
+
+func createTestMember(t *testing.T, store *db.Store, drawerID int64, fullName, phoneNumber string) sqlc.Member {
+	t.Helper()
+
+	member, err := store.Queries.CreateMember(t.Context(), sqlc.CreateMemberParams{
+		DrawerID:    drawerID,
+		FullName:    fullName,
+		PhoneNumber: phoneNumber,
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v, want nil", err)
+	}
+
+	return member
+}
+
+func createCompletedDraw(t *testing.T, store *db.Store, drawerID int64, exchangeDate time.Time) sqlc.Draw {
+	t.Helper()
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawerID,
+		ExchangeDate: exchangeDate,
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	updated, err := store.Queries.UpdateDrawStatus(t.Context(), sqlc.UpdateDrawStatusParams{
+		ID:     draw.ID,
+		Status: drawStatusAssigned,
+	})
+	if err != nil {
+		t.Fatalf("UpdateDrawStatus() error = %v, want nil", err)
+	}
+
+	return updated
+}
+
+func createTestAssignment(t *testing.T, store *db.Store, drawID, gifterID, gifteeID int64) {
+	t.Helper()
+
+	if _, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
+		DrawID:         drawID,
+		GifterMemberID: gifterID,
+		GifteeMemberID: gifteeID,
+	}); err != nil {
+		t.Fatalf("CreateAssignment() error = %v, want nil", err)
+	}
+}

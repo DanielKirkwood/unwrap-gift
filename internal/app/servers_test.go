@@ -231,6 +231,93 @@ func TestBuildServers_DatabaseEnabled_WidgetsCRUD(t *testing.T) {
 	}
 }
 
+// TestBuildServers_OrganiserAPI_RequiresAllThreeFeatures covers the
+// Phase 5 organiser API wiring appearing only when database, kratos, and
+// keto are all enabled — not just one or two of them — mirroring the
+// existing Widgets/Identities nil-vs-set coverage.
+func TestBuildServers_OrganiserAPI_RequiresAllThreeFeatures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		env         config.EnvVars
+		wantMounted bool
+	}{
+		{
+			name:        "all disabled",
+			env:         config.EnvVars{Env: "development", LogLevel: "debug"},
+			wantMounted: false,
+		},
+		{
+			name: "only database enabled",
+			env: config.EnvVars{
+				Env: "development", LogLevel: "debug",
+				DatabasePath: filepath.Join(t.TempDir(), "test.db"),
+			},
+			wantMounted: false,
+		},
+		{
+			name: "database and kratos enabled, keto disabled",
+			env: config.EnvVars{
+				Env: "production", LogLevel: "info",
+				DatabasePath:               filepath.Join(t.TempDir(), "test.db"),
+				KratosPublicURL:            "http://127.0.0.1:4433",
+				KratosAdminURL:             "http://127.0.0.1:4434",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+			},
+			wantMounted: false,
+		},
+		{
+			name: "database, kratos, and keto all enabled",
+			env: config.EnvVars{
+				Env: "production", LogLevel: "info",
+				DatabasePath:               filepath.Join(t.TempDir(), "test.db"),
+				KratosPublicURL:            "http://127.0.0.1:4433",
+				KratosAdminURL:             "http://127.0.0.1:4434",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+				KetoReadURL:                "http://127.0.0.1:4466",
+				KetoWriteURL:               "http://127.0.0.1:4467",
+			},
+			wantMounted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := app.Bootstrap(t.Context(), tt.env)
+			if err != nil {
+				t.Fatalf("Bootstrap() error = %v, want nil", err)
+			}
+			if a.Store != nil {
+				t.Cleanup(func() { _ = a.Store.Close() })
+				if migrateErr := db.Migrate(t.Context(), a.Store.DB); migrateErr != nil {
+					t.Fatalf("Migrate() error = %v, want nil", migrateErr)
+				}
+			}
+
+			servers, err := app.BuildServers(a)
+			if err != nil {
+				t.Fatalf("BuildServers() error = %v, want nil", err)
+			}
+
+			rec := httptest.NewRecorder()
+			servers.Hidden.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/drawers", nil))
+
+			gotMounted := rec.Code != http.StatusNotFound
+			if gotMounted != tt.wantMounted {
+				t.Errorf(
+					"GET /drawers status = %d, mounted = %v, want mounted = %v",
+					rec.Code,
+					gotMounted,
+					tt.wantMounted,
+				)
+			}
+		})
+	}
+}
+
 func TestBuildServers_DatabaseAndKratosEnabled_ProtectedRouterRequiresAuth(t *testing.T) {
 	t.Parallel()
 
