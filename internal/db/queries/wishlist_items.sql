@@ -1,6 +1,9 @@
 -- name: CreateWishlistItem :one
 INSERT INTO wishlist_items (phone_number, item_name, size, url) VALUES (?, ?, ?, ?) RETURNING *;
 
+-- name: GetWishlistItem :one
+SELECT * FROM wishlist_items WHERE id = ?;
+
 -- name: ListWishlistItemsByPhoneNumber :many
 SELECT * FROM wishlist_items WHERE phone_number = ? ORDER BY id;
 
