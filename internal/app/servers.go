@@ -231,7 +231,14 @@ func wireOrganiserAPI(deps *api.RouterDeps, a *App) {
 		},
 	}
 
-	deps.Draws = storeDraws{store: a.Store}
+	wireDraws(deps, a)
+}
+
+// wireDraws sets deps.Draws/DrawsAdapter — split out of wireOrganiserAPI to
+// keep that function under the funlen limit now that the notification
+// pipeline (Phase 7) adds a fifth ErrorsMap entry.
+func wireDraws(deps *api.RouterDeps, a *App) {
+	deps.Draws = storeDraws{store: a.Store, sms: a.SMS}
 	deps.DrawsAdapter = api.Adapter{
 		Logger: a.Logger,
 		ErrorsMap: api.ErrorsMap{
@@ -260,6 +267,16 @@ func wireOrganiserAPI(deps *api.RouterDeps, a *App) {
 					Status: http.StatusUnprocessableEntity,
 					Title:  "Unprocessable Entity",
 					Detail: "drawer has fewer than two members",
+				},
+			},
+			{
+				Match: api.ErrNotificationFailed,
+				Problem: api.Problem{
+					Status: http.StatusBadGateway,
+					Title:  "Bad Gateway",
+					Detail: "draw was assigned but one or more notification SMS messages failed to send; " +
+						"assignments are saved and visible via GET .../assignments, but the draw's status " +
+						"remains 'assigned' until notifications succeed",
 				},
 			},
 		},

@@ -32,6 +32,13 @@ var ErrNoValidAssignment = errors.New(
 // fewer than two members.
 var ErrTooFewMembers = errors.New("api: drawer has fewer than two members")
 
+// ErrNotificationFailed is returned by DrawStore.RunDraw when assignment
+// succeeds and is persisted, but sending the notification SMS to one or
+// more members fails. The draw's status stays 'assigned' (not
+// 'notified') in this case — see internal/app's
+// storeDraws.finalizeNotifications.
+var ErrNotificationFailed = errors.New("api: failed to send notification sms to one or more members")
+
 // Draw is api's own representation of a draw row, decoupled from
 // internal/db/sqlc.Draw.
 type Draw struct {

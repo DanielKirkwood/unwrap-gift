@@ -8,16 +8,22 @@ package app //nolint:testpackage // intentional: needs direct access to unexport
 // passthrough.
 
 import (
+	"context"
+	"database/sql"
 	"errors"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/seven-io/go-client/sms77api"
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/DanielKirkwood/unwrap-gift/internal/api"
 	"github.com/DanielKirkwood/unwrap-gift/internal/assign"
+	"github.com/DanielKirkwood/unwrap-gift/internal/clients/smsclient"
 	"github.com/DanielKirkwood/unwrap-gift/internal/config"
 	"github.com/DanielKirkwood/unwrap-gift/internal/db"
 	"github.com/DanielKirkwood/unwrap-gift/internal/db/sqlc"
@@ -43,6 +49,47 @@ func newAppTestStore(t *testing.T) *db.Store {
 	}
 
 	return store
+}
+
+// newDisabledSMSClient returns a non-nil, disabled *smsclient.Client —
+// RunDraw's notify step logs instead of sending, matching this
+// codebase's "SMS is never nil" convention (see
+// internal/clients/smsclient/smsclient.go's doc comment on Client).
+// Tests that need to assert on the SMS *content* construct their own
+// enabled client with a fakeSMSSender instead (see
+// TestRunDraw_SendsNotificationSMSWithWishlist).
+func newDisabledSMSClient(t *testing.T) *smsclient.Client {
+	t.Helper()
+	return &smsclient.Client{Logger: slog.New(slog.DiscardHandler)}
+}
+
+// fakeSMSSender is the smsclient.Sender fake this plan's notification
+// tests substitute via smsclient.Client.Sender. It mirrors
+// internal/clients/smsclient/smsclient_test.go's fakeSender, generalized
+// to capture every call in a slice (RunDraw sends one SMS per member,
+// not just one) — that file's fakeSender can't be reused directly since
+// it's unexported in a different test package (smsclient_test).
+type fakeSMSSender struct {
+	calls   []sms77api.SmsBaseParams
+	failFor map[string]string // phone number -> error text
+}
+
+//nolint:revive,staticcheck // name must match smsclient.Sender's JsonContext exactly
+func (f *fakeSMSSender) JsonContext(_ context.Context, p sms77api.SmsBaseParams) (*sms77api.SmsResponse, error) {
+	f.calls = append(f.calls, p)
+
+	if errText, fail := f.failFor[p.To]; fail {
+		detail := errText
+		return &sms77api.SmsResponse{
+			Success:  sms77api.StatusCodeErrorUnknown,
+			Messages: []sms77api.SmsResponseMessage{{Recipient: p.To, Success: false, ErrorText: &detail}},
+		}, nil
+	}
+
+	return &sms77api.SmsResponse{
+		Success:  sms77api.StatusCodeSuccess,
+		Messages: []sms77api.SmsResponseMessage{{Recipient: p.To, Success: true}},
+	}, nil
 }
 
 // TestRunDraw_RelaxesHistoryWindowByOne is the single most important
@@ -94,14 +141,14 @@ func TestRunDraw_RelaxesHistoryWindowByOne(t *testing.T) {
 		t.Fatalf("CreateDraw() error = %v, want nil", err)
 	}
 
-	s := storeDraws{store: store}
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
 
 	draw, assignments, runErr := s.RunDraw(t.Context(), drawer.ID, current.ID)
 	if runErr != nil {
 		t.Fatalf("RunDraw() error = %v, want nil (should succeed once window relaxes to 1)", runErr)
 	}
-	if draw.Status != drawStatusAssigned {
-		t.Errorf("RunDraw() draw.Status = %q, want %q", draw.Status, drawStatusAssigned)
+	if draw.Status != drawStatusNotified {
+		t.Errorf("RunDraw() draw.Status = %q, want %q", draw.Status, drawStatusNotified)
 	}
 
 	want := map[int64]int64{a.ID: c.ID, c.ID: b.ID, b.ID: a.ID} // D2
@@ -156,7 +203,7 @@ func TestRunDraw_NeverRelaxesExclusions(t *testing.T) {
 		t.Fatalf("CreateDraw() error = %v, want nil", err)
 	}
 
-	s := storeDraws{store: store}
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
 
 	_, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID)
 	if !errors.Is(runErr, api.ErrNoValidAssignment) {
@@ -191,7 +238,7 @@ func TestRunDraw_AlreadyRun(t *testing.T) {
 		t.Fatalf("CreateDraw() error = %v, want nil", err)
 	}
 
-	s := storeDraws{store: store}
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
 
 	if _, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID); runErr != nil {
 		t.Fatalf("first RunDraw() error = %v, want nil", runErr)
@@ -236,7 +283,7 @@ func TestPersistAssignment_RaceAgainstConcurrentRun(t *testing.T) {
 		t.Fatalf("CreateDraw() error = %v, want nil", err)
 	}
 
-	s := storeDraws{store: store}
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
 	assignResult := map[assign.MemberID]assign.MemberID{
 		assign.MemberID(a.ID): assign.MemberID(b.ID),
 		assign.MemberID(b.ID): assign.MemberID(a.ID),
@@ -302,5 +349,166 @@ func createTestAssignment(t *testing.T, store *db.Store, drawID, gifterID, gifte
 		GifteeMemberID: gifteeID,
 	}); err != nil {
 		t.Fatalf("CreateAssignment() error = %v, want nil", err)
+	}
+}
+
+// TestRunDraw_SendsNotificationSMSWithWishlist proves RunDraw's new
+// success path: one SMS per member, mentioning their giftee's name,
+// the budget, and (for the member with a wishlist item) that item's
+// name and size — and that the draw ends at 'notified', not 'assigned'.
+func TestRunDraw_SendsNotificationSMSWithWishlist(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Kirkwood Family Christmas",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	alice := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	bob := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	if _, itemErr := store.Queries.CreateWishlistItem(t.Context(), sqlc.CreateWishlistItemParams{
+		PhoneNumber: bob.PhoneNumber,
+		ItemName:    "Lego set",
+		Size:        sql.NullString{String: "Large", Valid: true},
+	}); itemErr != nil {
+		t.Fatalf("CreateWishlistItem() error = %v, want nil", itemErr)
+	}
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2500,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	fake := &fakeSMSSender{}
+	s := storeDraws{
+		store: store,
+		sms:   &smsclient.Client{Enabled: true, Sender: fake, From: "Santa", Logger: slog.New(slog.DiscardHandler)},
+	}
+
+	result, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID)
+	if runErr != nil {
+		t.Fatalf("RunDraw() error = %v, want nil", runErr)
+	}
+	if result.Status != drawStatusNotified {
+		t.Errorf("RunDraw() draw.Status = %q, want %q", result.Status, drawStatusNotified)
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("len(fake.calls) = %d, want 2 (one SMS per member)", len(fake.calls))
+	}
+
+	var sentToBob bool
+	for _, call := range fake.calls {
+		if call.To == bob.PhoneNumber {
+			sentToBob = true
+		}
+		assertNotificationSMS(t, call, alice.PhoneNumber, bob.PhoneNumber)
+	}
+	if !sentToBob {
+		t.Error("no SMS sent to Bob")
+	}
+}
+
+// assertNotificationSMS checks one fakeSMSSender call against the two
+// expected message shapes in TestRunDraw_SendsNotificationSMSWithWishlist's
+// 2-member drawer: Alice gifts Bob (who has a wishlist item), Bob gifts
+// Alice (who has none). Split out to keep that test's cognitive complexity
+// under golangci-lint's gocognit limit.
+func assertNotificationSMS(t *testing.T, call sms77api.SmsBaseParams, alicePhone, bobPhone string) {
+	t.Helper()
+
+	switch call.To {
+	case alicePhone:
+		// Alice gifts Bob, so her SMS is about Bob — including his
+		// wishlist item, since the SMS reports the giftee's wishlist to
+		// the gifter (not the gifter's own).
+		if !strings.Contains(call.Text, "Bob") {
+			t.Errorf("sms to Alice = %q, want it to mention Bob (her giftee)", call.Text)
+		}
+		if !strings.Contains(call.Text, "£25.00") {
+			t.Errorf("sms to Alice = %q, want it to mention the budget", call.Text)
+		}
+		if !strings.Contains(call.Text, "Lego set") || !strings.Contains(call.Text, "Large") {
+			t.Errorf("sms to Alice = %q, want it to include Bob's wishlist item and size", call.Text)
+		}
+	case bobPhone:
+		// Bob gifts Alice, who has no wishlist items — his SMS should
+		// fall back to the "haven't added a wishlist yet" message.
+		if !strings.Contains(call.Text, "Alice") {
+			t.Errorf("sms to Bob = %q, want it to mention Alice (his giftee)", call.Text)
+		}
+		if !strings.Contains(call.Text, "haven't added a wishlist yet") {
+			t.Errorf("sms to Bob = %q, want the no-wishlist fallback (Alice has no items)", call.Text)
+		}
+	}
+}
+
+// TestRunDraw_NotificationFailure_DrawStaysAssigned proves a send
+// failure surfaces as api.ErrNotificationFailed and leaves the draw
+// (and its already-persisted assignments) at 'assigned', not
+// 'notified' — the "known gap, not silently swallowed" behavior
+// documented on finalizeNotifications.
+func TestRunDraw_NotificationFailure_DrawStaysAssigned(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	alice := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	_ = createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	fake := &fakeSMSSender{failFor: map[string]string{alice.PhoneNumber: "invalid recipient"}}
+	s := storeDraws{
+		store: store,
+		sms:   &smsclient.Client{Enabled: true, Sender: fake, From: "Santa", Logger: slog.New(slog.DiscardHandler)},
+	}
+
+	_, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID)
+	if !errors.Is(runErr, api.ErrNotificationFailed) {
+		t.Fatalf("RunDraw() error = %v, want errors.Is(err, api.ErrNotificationFailed)", runErr)
+	}
+
+	stored, getErr := store.Queries.GetDraw(t.Context(), draw.ID)
+	if getErr != nil {
+		t.Fatalf("GetDraw() error = %v, want nil", getErr)
+	}
+	if stored.Status != drawStatusAssigned {
+		t.Errorf(
+			"draw.Status = %q, want %q (assignments persist even when notification fails)",
+			stored.Status, drawStatusAssigned,
+		)
+	}
+
+	assignments, listErr := store.Queries.ListAssignmentsByDraw(t.Context(), draw.ID)
+	if listErr != nil {
+		t.Fatalf("ListAssignmentsByDraw() error = %v, want nil", listErr)
+	}
+	if len(assignments) != 2 {
+		t.Errorf("len(assignments) = %d, want 2 (persisted despite notify failure)", len(assignments))
 	}
 }
