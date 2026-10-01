@@ -10,7 +10,7 @@ import (
 )
 
 const createDrawer = `-- name: CreateDrawer :one
-INSERT INTO drawers (name, organiser_kratos_identity_id) VALUES (?, ?) RETURNING id, name, organiser_kratos_identity_id, created_at, updated_at
+INSERT INTO drawers (name, organiser_kratos_identity_id) VALUES (?, ?) RETURNING id, name, organiser_kratos_identity_id, created_at, updated_at, history_window_draws
 `
 
 type CreateDrawerParams struct {
@@ -27,6 +27,7 @@ func (q *Queries) CreateDrawer(ctx context.Context, arg CreateDrawerParams) (Dra
 		&i.OrganiserKratosIdentityID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HistoryWindowDraws,
 	)
 	return i, err
 }
@@ -41,7 +42,7 @@ func (q *Queries) DeleteDrawer(ctx context.Context, id int64) error {
 }
 
 const getDrawer = `-- name: GetDrawer :one
-SELECT id, name, organiser_kratos_identity_id, created_at, updated_at FROM drawers WHERE id = ?
+SELECT id, name, organiser_kratos_identity_id, created_at, updated_at, history_window_draws FROM drawers WHERE id = ?
 `
 
 func (q *Queries) GetDrawer(ctx context.Context, id int64) (Drawer, error) {
@@ -53,12 +54,13 @@ func (q *Queries) GetDrawer(ctx context.Context, id int64) (Drawer, error) {
 		&i.OrganiserKratosIdentityID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HistoryWindowDraws,
 	)
 	return i, err
 }
 
 const listDrawersByOrganiser = `-- name: ListDrawersByOrganiser :many
-SELECT id, name, organiser_kratos_identity_id, created_at, updated_at FROM drawers WHERE organiser_kratos_identity_id = ? ORDER BY id
+SELECT id, name, organiser_kratos_identity_id, created_at, updated_at, history_window_draws FROM drawers WHERE organiser_kratos_identity_id = ? ORDER BY id
 `
 
 func (q *Queries) ListDrawersByOrganiser(ctx context.Context, organiserKratosIdentityID string) ([]Drawer, error) {
@@ -76,6 +78,7 @@ func (q *Queries) ListDrawersByOrganiser(ctx context.Context, organiserKratosIde
 			&i.OrganiserKratosIdentityID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HistoryWindowDraws,
 		); err != nil {
 			return nil, err
 		}
@@ -91,16 +94,17 @@ func (q *Queries) ListDrawersByOrganiser(ctx context.Context, organiserKratosIde
 }
 
 const updateDrawer = `-- name: UpdateDrawer :one
-UPDATE drawers SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, organiser_kratos_identity_id, created_at, updated_at
+UPDATE drawers SET name = ?, history_window_draws = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, organiser_kratos_identity_id, created_at, updated_at, history_window_draws
 `
 
 type UpdateDrawerParams struct {
-	Name string `json:"name"`
-	ID   int64  `json:"id"`
+	Name               string `json:"name"`
+	HistoryWindowDraws int64  `json:"history_window_draws"`
+	ID                 int64  `json:"id"`
 }
 
 func (q *Queries) UpdateDrawer(ctx context.Context, arg UpdateDrawerParams) (Drawer, error) {
-	row := q.db.QueryRowContext(ctx, updateDrawer, arg.Name, arg.ID)
+	row := q.db.QueryRowContext(ctx, updateDrawer, arg.Name, arg.HistoryWindowDraws, arg.ID)
 	var i Drawer
 	err := row.Scan(
 		&i.ID,
@@ -108,6 +112,7 @@ func (q *Queries) UpdateDrawer(ctx context.Context, arg UpdateDrawerParams) (Dra
 		&i.OrganiserKratosIdentityID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HistoryWindowDraws,
 	)
 	return i, err
 }

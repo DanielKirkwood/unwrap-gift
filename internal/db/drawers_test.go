@@ -38,13 +38,24 @@ func TestDrawerQueries_CRUD(t *testing.T) {
 
 	updated, err := store.Queries.UpdateDrawer(
 		t.Context(),
-		sqlc.UpdateDrawerParams{ID: created.ID, Name: "Family Secret Santa"},
+		sqlc.UpdateDrawerParams{ID: created.ID, Name: "Family Secret Santa", HistoryWindowDraws: 5},
 	)
 	if err != nil {
 		t.Fatalf("UpdateDrawer() error = %v, want nil", err)
 	}
 	if updated.Name != "Family Secret Santa" {
 		t.Errorf("UpdateDrawer() name = %q, want Family Secret Santa", updated.Name)
+	}
+	if updated.HistoryWindowDraws != 5 {
+		t.Errorf("UpdateDrawer() history_window_draws = %d, want 5", updated.HistoryWindowDraws)
+	}
+
+	got, err = store.Queries.GetDrawer(t.Context(), created.ID)
+	if err != nil {
+		t.Fatalf("GetDrawer() after update error = %v, want nil", err)
+	}
+	if got.HistoryWindowDraws != 5 {
+		t.Errorf("GetDrawer() after update history_window_draws = %d, want 5", got.HistoryWindowDraws)
 	}
 
 	list, err := store.Queries.ListDrawersByOrganiser(t.Context(), "organiser-1")

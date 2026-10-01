@@ -8,7 +8,7 @@ SELECT * FROM drawers WHERE id = ?;
 SELECT * FROM drawers WHERE organiser_kratos_identity_id = ? ORDER BY id;
 
 -- name: UpdateDrawer :one
-UPDATE drawers SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;
+UPDATE drawers SET name = ?, history_window_draws = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;
 
 -- name: DeleteDrawer :exec
 DELETE FROM drawers WHERE id = ?;

@@ -98,6 +98,56 @@ func (q *Queries) ListDrawsByDrawer(ctx context.Context, drawerID int64) ([]Draw
 	return items, nil
 }
 
+const listRecentCompletedDrawsByDrawer = `-- name: ListRecentCompletedDrawsByDrawer :many
+SELECT id, drawer_id, exchange_date, budget_amount, status, created_at, updated_at FROM draws
+WHERE drawer_id = ? AND id != ? AND status != 'draft'
+ORDER BY exchange_date DESC
+LIMIT ?
+`
+
+type ListRecentCompletedDrawsByDrawerParams struct {
+	DrawerID int64 `json:"drawer_id"`
+	ID       int64 `json:"id"`
+	Limit    int64 `json:"limit"`
+}
+
+// ListRecentCompletedDrawsByDrawer returns the drawer's most recent draws
+// that actually produced an assignment ('assigned' or 'notified'
+// status), excluding the draw currently being run, most-recent-first,
+// capped at limit. RunDraw uses this to build the history window; the
+// 'draft' filter keeps an unrelated in-progress draw for the same
+// drawer from ever being treated as history.
+func (q *Queries) ListRecentCompletedDrawsByDrawer(ctx context.Context, arg ListRecentCompletedDrawsByDrawerParams) ([]Draw, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentCompletedDrawsByDrawer, arg.DrawerID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Draw
+	for rows.Next() {
+		var i Draw
+		if err := rows.Scan(
+			&i.ID,
+			&i.DrawerID,
+			&i.ExchangeDate,
+			&i.BudgetAmount,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateDrawStatus = `-- name: UpdateDrawStatus :one
 UPDATE draws SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, drawer_id, exchange_date, budget_amount, status, created_at, updated_at
 `
