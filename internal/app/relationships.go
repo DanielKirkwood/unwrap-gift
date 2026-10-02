@@ -66,8 +66,12 @@ func (s storeRelationships) ListRelationshipsForPhoneNumber(
 }
 
 func (s storeRelationships) DeleteRelationship(ctx context.Context, id int64) error {
-	if err := s.store.Queries.DeleteRelationship(ctx, id); err != nil {
+	rows, err := s.store.Queries.DeleteRelationship(ctx, id)
+	if err != nil {
 		return fmt.Errorf("app: delete relationship: %w", err)
+	}
+	if rows == 0 {
+		return api.ErrRelationshipNotFound
 	}
 
 	return nil

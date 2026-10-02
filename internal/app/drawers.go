@@ -71,6 +71,10 @@ func (s storeDrawers) UpdateDrawer(
 }
 
 func (s storeDrawers) DeleteDrawer(ctx context.Context, id int64) error {
+	if _, err := s.store.Queries.GetDrawer(ctx, id); err != nil {
+		return mapDrawerErr(err)
+	}
+
 	if err := s.store.Queries.DeleteDrawer(ctx, id); err != nil {
 		return fmt.Errorf("app: delete drawer: %w", err)
 	}

@@ -37,8 +37,12 @@ func TestRelationshipQueries_CRUD(t *testing.T) {
 		t.Fatalf("ListRelationshipsForPhoneNumber() len = %d, want 1", len(list))
 	}
 
-	if deleteErr := store.Queries.DeleteRelationship(t.Context(), created.ID); deleteErr != nil {
+	rowsAffected, deleteErr := store.Queries.DeleteRelationship(t.Context(), created.ID)
+	if deleteErr != nil {
 		t.Fatalf("DeleteRelationship() error = %v, want nil", deleteErr)
+	}
+	if rowsAffected != 1 {
+		t.Errorf("DeleteRelationship() rowsAffected = %d, want 1", rowsAffected)
 	}
 
 	listAfterDelete, err := store.Queries.ListRelationshipsForPhoneNumber(

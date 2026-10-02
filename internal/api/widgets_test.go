@@ -157,3 +157,19 @@ func TestMountWidgets_GetNotFound(t *testing.T) {
 		t.Errorf("lastID = %d, want 1", fake.lastID)
 	}
 }
+
+func TestMountWidgets_DeleteNotFound(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeWidgetStore{err: errFakeWidgetNotFound}
+	router := mountTestWidgets(fake)
+
+	req := httptest.NewRequest(http.MethodDelete, "/widgets/1", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
