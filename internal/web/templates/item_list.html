@@ -1,0 +1,23 @@
+{{/*
+  The htmx swap target for every mutating endpoint (create/edit-cancel) —
+  owns the #wishlist-items wrapper itself so it's a valid standalone
+  outerHTML swap response as well as part of the full wishlist.html page.
+  .Error is rendered in-band at 200 (Decision #6) rather than via a 4xx/5xx
+  status, since htmx doesn't swap content on non-2xx responses by default.
+*/}}
+<div id="wishlist-items">
+  {{if .Error}}
+    <wa-callout variant="danger" appearance="outlined">{{.Error}}</wa-callout>
+  {{end}}
+
+  {{if .Items}}
+    <div class="item-grid">
+      {{range .Items}}{{template "item_row.html" .}}{{end}}
+    </div>
+  {{else}}
+    <wa-callout variant="neutral" appearance="outlined">
+      <wa-icon slot="icon" name="gift"></wa-icon>
+      No items yet — add something below!
+    </wa-callout>
+  {{end}}
+</div>

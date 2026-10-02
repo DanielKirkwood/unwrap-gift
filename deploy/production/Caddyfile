@@ -10,9 +10,11 @@
 #
 # api.{$DOMAIN} is unwrap-gift's real API surface today (only the protected
 # router has content — see deploy/kratos/kratos.production.yml's own
-# comment on why the bare domain isn't routed yet). auth/login are Kratos's
-# public API and self-service UI, both of which browsers talk to directly
-# for login/registration/recovery flows.
+# comment on why the bare domain isn't routed yet). auth.{$DOMAIN} is
+# Kratos's public API, which browsers talk to directly to submit login
+# forms (see internal/web/login.go) — there is no separate self-service UI
+# service; app.{$DOMAIN} (internal/web's own router) renders /login and
+# /wishlist itself.
 
 api.{$DOMAIN} {
 	reverse_proxy unwrap-gift:8081
@@ -22,6 +24,6 @@ auth.{$DOMAIN} {
 	reverse_proxy kratos:4433
 }
 
-login.{$DOMAIN} {
-	reverse_proxy kratos-selfservice-ui-node:3000
+app.{$DOMAIN} {
+	reverse_proxy unwrap-gift:8083
 }

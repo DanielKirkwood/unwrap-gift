@@ -1,0 +1,64 @@
+{{/*
+  "head" is a named sub-template (not literal inclusion — html/template
+  shares one namespace across every file ParseFS loads, and a top-level
+  {{define}} block with the same name in two files would clobber each
+  other, so each page invokes {{template "head" .}} explicitly instead of
+  trying to "extend" base.html). Holds everything every page's <head>
+  needs: mobile viewport, the htmx + WebAwesome CDN tags (no JS build
+  step), and a small amount of custom CSS built on WebAwesome's own
+  --wa- design tokens rather than hardcoded values.
+*/}}
+{{define "head"}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secret Santa</title>
+<!-- Required: default theme + autoloader -->
+<link rel="stylesheet" href="https://ka-f.webawesome.com/webawesome@3.14.0/styles/themes/default.css" />
+<script type="module" src="https://ka-f.webawesome.com/webawesome@3.14.0/webawesome.loader.js"></script>
+
+<!-- Recommended: utility classes ("CSS Utilities") -->
+<link rel="stylesheet" href="https://ka-f.webawesome.com/webawesome@3.14.0/styles/utilities.css" />
+
+<!-- Optional: CSS reset ("Native Styles") -->
+<link rel="stylesheet" href="https://ka-f.webawesome.com/webawesome@3.14.0/styles/native.css" />
+
+<script src="https://unpkg.com/htmx.org@2.0.11/dist/htmx.min.js"></script>
+<style>
+  body {
+    margin: 0;
+    background: var(--wa-color-neutral-fill-quiet);
+    font-family: var(--wa-font-family-body, sans-serif);
+  }
+  .page {
+    max-width: 480px;
+    margin-inline: auto;
+    padding: var(--wa-space-m);
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-m);
+  }
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--wa-space-s);
+  }
+  form.stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-s);
+  }
+  .item-grid {
+    display: grid;
+    gap: var(--wa-space-m);
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 640px) {
+    .item-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .item-actions {
+    display: flex;
+    gap: var(--wa-space-2xs);
+  }
+</style>
+{{end}}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "head" .}}</head>
+<body>
+<div class="page">
+  <header class="page-header">
+    <div><wa-icon name="gift"></wa-icon> Hi{{if .FullName}} {{.FullName}}{{end}}</div>
+    <wa-badge variant="brand" pill>{{len .Items}}</wa-badge>
+  </header>
+
+  <wa-card>
+    <div slot="header">Add an item</div>
+    <form class="stack" hx-post="/wishlist" hx-target="#wishlist-items" hx-swap="outerHTML" hx-indicator="#add-spinner">
+      <wa-input name="item_name" label="Item" required autofocus></wa-input>
+      <wa-input name="size" label="Size (optional)"></wa-input>
+      <wa-input name="url" type="url" label="Link (optional)"></wa-input>
+      <wa-button type="submit" variant="brand" appearance="filled">
+        Add item
+        <wa-spinner id="add-spinner" class="htmx-indicator"></wa-spinner>
+      </wa-button>
+    </form>
+  </wa-card>
+
+  <wa-divider></wa-divider>
+
+  {{template "item_list.html" .}}
+</div>
+</body>
+</html>

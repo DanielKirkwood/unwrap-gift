@@ -17,7 +17,7 @@ func TestLoad(t *testing.T) {
 			env:  map[string]string{},
 			want: config.EnvVars{
 				Env: "development", LogLevel: "info",
-				PublicPort: "8080", ProtectedPort: "8081", HiddenPort: "8082",
+				PublicPort: "8080", ProtectedPort: "8081", HiddenPort: "8082", WebPort: "8083",
 			},
 		},
 		{
@@ -28,10 +28,11 @@ func TestLoad(t *testing.T) {
 				"PUBLIC_PORT":    "9090",
 				"PROTECTED_PORT": "9091",
 				"HIDDEN_PORT":    "9092",
+				"WEB_PORT":       "9093",
 			},
 			want: config.EnvVars{
 				Env: "production", LogLevel: "warn",
-				PublicPort: "9090", ProtectedPort: "9091", HiddenPort: "9092",
+				PublicPort: "9090", ProtectedPort: "9091", HiddenPort: "9092", WebPort: "9093",
 			},
 		},
 		{
@@ -41,7 +42,7 @@ func TestLoad(t *testing.T) {
 			},
 			want: config.EnvVars{
 				Env: "development", LogLevel: "info",
-				PublicPort: "8080", ProtectedPort: "8081", HiddenPort: "8082",
+				PublicPort: "8080", ProtectedPort: "8081", HiddenPort: "8082", WebPort: "8083",
 				DatabasePath: "/tmp/app.db",
 			},
 		},

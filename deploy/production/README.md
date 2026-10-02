@@ -8,7 +8,7 @@ exactly what those two documents already said production requires.
 ## First-time setup
 
 1. Point DNS at the VPS: the bare domain (or `www`), `api.<DOMAIN>`, `auth.<DOMAIN>`, and
-   `login.<DOMAIN>` all need an A/AAAA record to this machine — Caddy issues a cert per hostname it
+   `app.<DOMAIN>` all need an A/AAAA record to this machine — Caddy issues a cert per hostname it
    actually receives traffic for.
 2. Install Docker + the Compose plugin on the VPS.
 3. Copy this repo to the VPS (or just `deploy/`, `Dockerfile`, `.dockerignore`, and the module
@@ -40,10 +40,17 @@ docker compose --env-file .env.production logs -f
 
 Same two-step process as local dev (`deploy/keto/README.md`), just against the production URLs:
 
-1. Register a user at `https://login.<DOMAIN>/registration`, then find their Kratos identity ID
-   (query `GET https://auth.<DOMAIN>/admin/identities` from a machine that can reach the compose
-   network — the admin API isn't published to the host, so this has to run from inside the
-   `unwrap-gift` container or over an SSH tunnel, never directly from your laptop).
+1. Create an identity via Kratos's admin API (identities are organiser-provisioned only — there is
+   no self-service registration). The admin API isn't published to the host, so run the curl from a
+   container already on the compose network, e.g.:
+   ```sh
+   docker compose --env-file .env.production exec unwrap-gift sh -c '
+     curl -X POST http://kratos:4434/admin/identities \
+       -H "Content-Type: application/json" \
+       -d "{\"schema_id\":\"default\",\"traits\":{\"phone\":\"+1...\",\"full_name\":\"...\"}}"
+   '
+   ```
+   The response includes the new identity's `id`.
 2. Set `KETO_SEED_ADMIN_IDENTITY_ID` in `.env.production` to that ID, then run the task directly:
 
    ```sh

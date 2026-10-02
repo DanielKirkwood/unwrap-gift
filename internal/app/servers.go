@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/DanielKirkwood/unwrap-gift/internal/api"
 	"github.com/DanielKirkwood/unwrap-gift/internal/clients/kratosclient"
 	"github.com/DanielKirkwood/unwrap-gift/internal/config"
+	"github.com/DanielKirkwood/unwrap-gift/internal/web"
 )
 
 const (
@@ -24,13 +26,21 @@ const (
 	titleConflict = "Conflict"
 )
 
-// Servers holds the three independently-bound HTTP servers: public,
-// protected, and hidden. Each wraps its own *chi.Mux (built in internal/api)
-// with otelhttp for request metrics.
+// defaultWebPort mirrors internal/config/config.go's WebPort default tag —
+// needed here because a disabled "web" feature leaves config.WebConfig at
+// its zero value (Build never ran), but Web is always built regardless of
+// feature state (matching Public/Protected/Hidden), so it still needs a
+// port to bind.
+const defaultWebPort = "8083"
+
+// Servers holds the four independently-bound HTTP servers: public,
+// protected, hidden, and web. Each wraps its own *chi.Mux (built in
+// internal/api or internal/web) with otelhttp for request metrics.
 type Servers struct {
 	Public    *http.Server
 	Protected *http.Server
 	Hidden    *http.Server
+	Web       *http.Server
 }
 
 // BuildServers constructs the three routers and the [http.Server] each is
@@ -116,27 +126,67 @@ func BuildServers(a *App) (*Servers, error) {
 		wireOrganiserAPI(&deps, a)
 	}
 
+	webFeature, _ := a.Registry.Feature("web")
+	webCfg, _ := webFeature.Config.(config.WebConfig)
+	webDeps, err := buildWebDeps(a, webFeature.Enabled, kratosCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	webPort := webCfg.Port
+	if webPort == "" {
+		webPort = defaultWebPort
+	}
+
 	return &Servers{
 		Public:    newServer(svcCfg.PublicPort, "public", api.NewPublicRouter(deps), a),
 		Protected: newServer(svcCfg.ProtectedPort, "protected", api.NewProtectedRouter(deps), a),
 		Hidden:    newServer(svcCfg.HiddenPort, "hidden", api.NewHiddenRouter(deps), a),
+		Web:       newServer(webPort, "web", web.NewWebRouter(webDeps), a),
 	}, nil
 }
 
-// Shutdown gracefully stops all three servers in parallel, each bounded by
+// buildWebDeps constructs internal/web's RouterDeps, left mostly zero-value
+// (nil Auth/LoginFlows/WishlistItems) when the "web" feature is disabled —
+// NewWebRouter's own nil checks then mount only /health-equivalent routes
+// (just the "/" redirect), matching the other three routers'
+// disabled-is-a-no-op convention. Split out of BuildServers to keep it
+// under the funlen limit.
+func buildWebDeps(a *App, enabled bool, kratosCfg config.KratosConfig) (web.RouterDeps, error) {
+	deps := web.RouterDeps{Logger: a.Logger, TracerProvider: a.Otel.TracerProvider}
+	if !enabled {
+		return deps, nil
+	}
+
+	templates, err := web.ParseTemplates()
+	if err != nil {
+		return web.RouterDeps{}, fmt.Errorf("app: parse web templates: %w", err)
+	}
+
+	deps.Templates = templates
+	deps.Auth = web.AuthenticationMiddleware(a.Kratos)
+	deps.LoginFlows = a.Kratos
+	deps.KratosBrowserURL = kratosCfg.BrowserURL
+	deps.WishlistItems = webStoreWishlistItems{store: a.Store}
+
+	return deps, nil
+}
+
+// Shutdown gracefully stops all four servers in parallel, each bounded by
 // shutdownTimeout, and joins any errors.
 func (s *Servers) Shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
 
-	errs := make(chan error, 3) //nolint:mnd // one error slot per server
+	servers := []*http.Server{s.Public, s.Protected, s.Hidden, s.Web}
+	errs := make(chan error, len(servers))
 
-	for _, srv := range []*http.Server{s.Public, s.Protected, s.Hidden} {
+	for _, srv := range servers {
 		go func(srv *http.Server) { errs <- srv.Shutdown(ctx) }(srv)
 	}
 
 	var joined error
-	for range 3 {
+	for range servers {
 		joined = errors.Join(joined, <-errs)
 	}
 

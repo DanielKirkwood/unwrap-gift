@@ -364,6 +364,77 @@ func TestBuildServers_DatabaseAndKratosEnabled_ProtectedRouterRequiresAuth(t *te
 // No cookie is sent, so a mounted route answers 401 (AuthenticationMiddleware
 // rejecting before reaching any store), while an unmounted route answers
 // 404 — no live Kratos instance is needed for either outcome.
+// TestBuildServers_WebFeature_RoutesMountedOnlyWhenDatabaseAndKratosEnabled
+// covers the "web" feature's gating — mirroring
+// TestBuildServers_WishlistItems_RequiresDatabaseAndKratos' shape. Unlike
+// Public/Protected/Hidden, servers.Web is always non-nil regardless of
+// feature state (it always needs a port to bind — see
+// internal/app/servers.go's defaultWebPort comment); what's conditional is
+// whether /login and /wishlist are actually mounted on it.
+func TestBuildServers_WebFeature_RoutesMountedOnlyWhenDatabaseAndKratosEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		env         config.EnvVars
+		wantMounted bool
+	}{
+		{
+			name:        "all disabled",
+			env:         config.EnvVars{Env: "development", LogLevel: "debug"},
+			wantMounted: false,
+		},
+		{
+			name: "database and kratos enabled",
+			env: config.EnvVars{
+				Env: "production", LogLevel: "info",
+				DatabasePath:               filepath.Join(t.TempDir(), "test.db"),
+				KratosPublicURL:            "http://127.0.0.1:4433",
+				KratosAdminURL:             "http://127.0.0.1:4434",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+			},
+			wantMounted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := app.Bootstrap(t.Context(), tt.env)
+			if err != nil {
+				t.Fatalf("Bootstrap() error = %v, want nil", err)
+			}
+			if a.Store != nil {
+				t.Cleanup(func() { _ = a.Store.Close() })
+				if migrateErr := db.Migrate(t.Context(), a.Store.DB); migrateErr != nil {
+					t.Fatalf("Migrate() error = %v, want nil", migrateErr)
+				}
+			}
+
+			servers, err := app.BuildServers(a)
+			if err != nil {
+				t.Fatalf("BuildServers() error = %v, want nil", err)
+			}
+			if servers.Web == nil {
+				t.Fatal("servers.Web is nil, want a server to always be built")
+			}
+
+			rec := httptest.NewRecorder()
+			servers.Web.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/wishlist", nil))
+
+			// Mounted: redirects to /login (no session). Not mounted: 404.
+			gotMounted := rec.Code != http.StatusNotFound
+			if gotMounted != tt.wantMounted {
+				t.Errorf(
+					"GET /wishlist status = %d, mounted = %v, want mounted = %v",
+					rec.Code, gotMounted, tt.wantMounted,
+				)
+			}
+		})
+	}
+}
+
 func TestBuildServers_WishlistItems_RequiresDatabaseAndKratos(t *testing.T) {
 	t.Parallel()
 

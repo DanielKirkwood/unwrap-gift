@@ -22,10 +22,9 @@ passed down explicitly through constructors — not fetched via package-level `G
 singleton getters. This is what makes each piece testable as a plain Go value instead of requiring
 global state to be mocked.
 
-## The three-router model
+## The four-router model
 
-The app runs three independent `chi.Mux` routers, each its own port and `http.Server`
-(`internal/api/router.go`, wired up in `internal/app/servers.go`):
+The app runs four independent `chi.Mux` routers, each its own port and `http.Server`:
 
 - **Public** (`PUBLIC_PORT`, default `8080`) — the externally-facing surface. Only `/health/*`
   today.
@@ -35,11 +34,20 @@ The app runs three independent `chi.Mux` routers, each its own port and `http.Se
   interface not exposed to the public internet (a private network, a sidecar, an SSH tunnel — not
   a public DNS name). Every route other than `/health/*` runs behind `deps.Auth`, then
   `deps.Authz`. The admin identity CRUD example lives here.
+- **Web** (`WEB_PORT`, default `8083`) — the browser-facing login + wishlist UI
+  (`internal/web/router.go`, wired up alongside the other three in
+  `internal/app/servers.go`). Unlike the other three, it doesn't apply `EnforceJSON` (it serves
+  HTML and accepts form-urlencoded POSTs) and has no `/health/*`. `/login` is mounted *outside*
+  its `Auth`-guarded route group deliberately — it's what `Auth` redirects unauthenticated
+  requests to, so applying `Auth` there would loop. `internal/web` drives Kratos's public
+  browser-flow API directly (see `internal/web/login.go`) rather than delegating to a separate
+  self-service UI service.
 
-Separate servers rather than one router with middleware groups means a misconfigured reverse
-proxy can only ever leak the hidden router's surface if its port is actually published — see
-[DEPLOYMENT.md](DEPLOYMENT.md) for how the production Caddy config only exposes the protected
-router (`api.$DOMAIN` → `unwrap-gift:8081`), never public or hidden.
+The first three live in `internal/api/router.go`. Separate servers rather than one router with
+middleware groups means a misconfigured reverse proxy can only ever leak the hidden router's
+surface if its port is actually published — see [DEPLOYMENT.md](DEPLOYMENT.md) for how the
+production Caddy config only exposes the protected router (`api.$DOMAIN` → `unwrap-gift:8081`)
+and the web router (`app.$DOMAIN` → `unwrap-gift:8083`), never public or hidden.
 
 ## Feature flags and the "nil is disabled" convention
 
@@ -68,6 +76,18 @@ interfaces for exactly what it needs — `SessionValidator`, `PermissionChecker`
 `IdentityAdmin` — and `internal/clients/kratosclient`, `internal/clients/ketoclient`, and
 `internal/app` (via its `storeWidgets` adapter) implement them. `internal/app`, as the composition
 root, is the only package that imports both sides and wires the concrete type into the interface.
+
+`internal/web` follows the identical pattern, but must not import `internal/api` either (only
+`internal/app` may import both) — so it declares its *own*, separately-named interfaces
+(`web.SessionValidator`, `web.LoginFlowProvider`, `web.WishlistItemStore`) even where their method
+sets are identical to `internal/api`'s. This has one real consequence: `internal/app`'s
+`storeWishlistItems` (returning `api.WishlistItem`) cannot also satisfy `web.WishlistItemStore`
+(which needs `web.WishlistItem`) — Go interface satisfaction requires exact return-type matches,
+not just structural equivalence, so `internal/app/wishlist_items.go` has a second small adapter,
+`webStoreWishlistItems`, doing the same queries with a different DTO conversion. Interfaces whose
+methods pass through third-party SDK types unchanged (`*kratos.Session`, `*kratos.LoginFlow`) don't
+have this problem — `kratosclient.Client` satisfies both packages' interfaces with no wrapper
+needed, since both reference the same `github.com/ory/kratos-client-go` types directly.
 
 This is the same dependency-direction rule above applied at the type level: it's what makes
 `internal/api`'s handlers testable with a fake `WidgetStore`/`IdentityAdmin` instead of a real

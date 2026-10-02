@@ -109,6 +109,32 @@ func TestResolveFeatureEnabledState(t *testing.T) {
 			wantEnabled: map[string]bool{"sms": false},
 			wantReason:  map[string]string{"sms": "missing required env: SevenSenderID"},
 		},
+		{
+			name: "web enabled once both kratos and database are, with no RequiredEnv of its own",
+			env: config.EnvVars{
+				DatabasePath:               "/tmp/app.db",
+				KratosPublicURL:            "http://kratos.public",
+				KratosAdminURL:             "http://kratos.admin",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+			},
+			wantEnabled: map[string]bool{"web": true},
+		},
+		{
+			name:        "web disabled when kratos and database are both disabled",
+			env:         config.EnvVars{},
+			wantEnabled: map[string]bool{"web": false},
+			wantReason:  map[string]string{"web": "requires disabled feature: kratos"},
+		},
+		{
+			name: "web disabled when kratos is enabled but database is not",
+			env: config.EnvVars{
+				KratosPublicURL:            "http://kratos.public",
+				KratosAdminURL:             "http://kratos.admin",
+				KratosCourierWebhookSecret: "test-webhook-secret",
+			},
+			wantEnabled: map[string]bool{"web": false},
+			wantReason:  map[string]string{"web": "requires disabled feature: database"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -161,6 +187,63 @@ func TestConfigure(t *testing.T) {
 	otel := featureState(t, r, "otel")
 	if otel.Config != nil {
 		t.Errorf("disabled feature otel got Config = %+v, want nil (never built)", otel.Config)
+	}
+}
+
+func TestConfigure_KratosBrowserURL_FallsBackToPublicURL(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		KratosPublicURL:            "http://127.0.0.1:4433",
+		KratosAdminURL:             "http://127.0.0.1:4434",
+		KratosCourierWebhookSecret: "test-webhook-secret",
+	}
+
+	r := config.DefaultRegistry()
+	if err := r.ResolveFeatureEnabledState(env); err != nil {
+		t.Fatalf("ResolveFeatureEnabledState() error = %v", err)
+	}
+	if err := r.Configure(env); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	cfg, ok := featureState(t, r, "kratos").Config.(config.KratosConfig)
+	if !ok {
+		t.Fatalf("kratos Config is %T, want config.KratosConfig", featureState(t, r, "kratos").Config)
+	}
+	if cfg.BrowserURL != env.KratosPublicURL {
+		t.Errorf(
+			"BrowserURL = %q, want %q (falls back to PublicURL when KRATOS_BROWSER_URL unset)",
+			cfg.BrowserURL,
+			env.KratosPublicURL,
+		)
+	}
+}
+
+func TestConfigure_KratosBrowserURL_UsedWhenSet(t *testing.T) {
+	t.Parallel()
+
+	env := config.EnvVars{
+		KratosPublicURL:            "http://kratos:4433",
+		KratosAdminURL:             "http://kratos:4434",
+		KratosCourierWebhookSecret: "test-webhook-secret",
+		KratosBrowserURL:           "https://auth.example.com",
+	}
+
+	r := config.DefaultRegistry()
+	if err := r.ResolveFeatureEnabledState(env); err != nil {
+		t.Fatalf("ResolveFeatureEnabledState() error = %v", err)
+	}
+	if err := r.Configure(env); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	cfg, ok := featureState(t, r, "kratos").Config.(config.KratosConfig)
+	if !ok {
+		t.Fatalf("kratos Config is %T, want config.KratosConfig", featureState(t, r, "kratos").Config)
+	}
+	if cfg.BrowserURL != "https://auth.example.com" {
+		t.Errorf("BrowserURL = %q, want %q (explicit value used as-is)", cfg.BrowserURL, "https://auth.example.com")
 	}
 }
 

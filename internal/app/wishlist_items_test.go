@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/DanielKirkwood/unwrap-gift/internal/api"
+	"github.com/DanielKirkwood/unwrap-gift/internal/web"
 )
 
 func TestStoreWishlistItems_OwnershipEnforced(t *testing.T) {
@@ -135,5 +136,66 @@ func TestStoreWishlistItems_UpdateDeleteNonexistentReturnsNotFound(t *testing.T)
 	deleteErr := items.DeleteWishlistItem(t.Context(), "+447700900000", 999)
 	if !errors.Is(deleteErr, api.ErrWishlistItemNotFound) {
 		t.Errorf("DeleteWishlistItem() (nonexistent) error = %v, want api.ErrWishlistItemNotFound", deleteErr)
+	}
+}
+
+// TestWebStoreWishlistItems_OwnershipEnforced is
+// TestStoreWishlistItems_OwnershipEnforced's counterpart for
+// webStoreWishlistItems — the adapter internal/web's router uses — asserting
+// the ownership-mismatch and not-found cases surface web.ErrWishlistItemNotFound,
+// not api.ErrWishlistItemNotFound, since webStoreWishlistItems must not leak an
+// internal/api error value across the internal/web dependency-direction
+// boundary (ARCHITECTURE.md).
+func TestWebStoreWishlistItems_OwnershipEnforced(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	items := webStoreWishlistItems{store: store}
+
+	const ownerPhone = "+447700900000"
+	const otherPhone = "+447700900001"
+
+	created, err := items.CreateWishlistItem(t.Context(), ownerPhone, "Board game", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateWishlistItem() error = %v, want nil", err)
+	}
+
+	_, updateWrongOwnerErr := items.UpdateWishlistItem(t.Context(), otherPhone, created.ID, "hijacked", nil, nil)
+	if !errors.Is(updateWrongOwnerErr, web.ErrWishlistItemNotFound) {
+		t.Errorf(
+			"UpdateWishlistItem() (wrong owner) error = %v, want web.ErrWishlistItemNotFound",
+			updateWrongOwnerErr,
+		)
+	}
+	if errors.Is(updateWrongOwnerErr, api.ErrWishlistItemNotFound) {
+		t.Error("UpdateWishlistItem() (wrong owner) error unexpectedly matches api.ErrWishlistItemNotFound")
+	}
+
+	deleteWrongOwnerErr := items.DeleteWishlistItem(t.Context(), otherPhone, created.ID)
+	if !errors.Is(deleteWrongOwnerErr, web.ErrWishlistItemNotFound) {
+		t.Errorf(
+			"DeleteWishlistItem() (wrong owner) error = %v, want web.ErrWishlistItemNotFound",
+			deleteWrongOwnerErr,
+		)
+	}
+}
+
+// TestWebStoreWishlistItems_UpdateDeleteNonexistentReturnsNotFound mirrors
+// TestStoreWishlistItems_UpdateDeleteNonexistentReturnsNotFound for
+// webStoreWishlistItems.
+func TestWebStoreWishlistItems_UpdateDeleteNonexistentReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	items := webStoreWishlistItems{store: store}
+
+	_, updateErr := items.UpdateWishlistItem(t.Context(), "+447700900000", 999, "x", nil, nil)
+	if !errors.Is(updateErr, web.ErrWishlistItemNotFound) {
+		t.Errorf("UpdateWishlistItem() (nonexistent) error = %v, want web.ErrWishlistItemNotFound", updateErr)
+	}
+
+	deleteErr := items.DeleteWishlistItem(t.Context(), "+447700900000", 999)
+	if !errors.Is(deleteErr, web.ErrWishlistItemNotFound) {
+		t.Errorf("DeleteWishlistItem() (nonexistent) error = %v, want web.ErrWishlistItemNotFound", deleteErr)
 	}
 }
