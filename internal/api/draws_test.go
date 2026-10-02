@@ -50,6 +50,16 @@ func (f *fakeDrawStore) ListAssignmentsByDraw(_ context.Context, drawerID, drawI
 	return f.assignments, f.err
 }
 
+func (f *fakeDrawStore) UpdateDraw(
+	_ context.Context,
+	drawerID, id int64,
+	_ time.Time,
+	_ int64,
+) (api.Draw, error) {
+	f.lastDrawerID, f.lastID = drawerID, id
+	return f.draw, f.err
+}
+
 func (f *fakeDrawStore) RunDraw(_ context.Context, drawerID, drawID int64) (api.Draw, []api.Assignment, error) {
 	f.lastDrawerID, f.lastID = drawerID, drawID
 	return f.draw, f.assignments, f.err
@@ -95,6 +105,13 @@ func TestMountDraws_CRUD(t *testing.T) {
 		},
 		{"list", http.MethodGet, "/drawers/1/draws/", "", http.StatusOK},
 		{"get", http.MethodGet, "/drawers/1/draws/1", "", http.StatusOK},
+		{
+			"update",
+			http.MethodPut,
+			"/drawers/1/draws/1",
+			`{"exchange_date":"2026-12-26T00:00:00Z","budget_amount":2500}`,
+			http.StatusOK,
+		},
 		{"assignments", http.MethodGet, "/drawers/1/draws/1/assignments", "", http.StatusOK},
 	}
 
@@ -154,6 +171,25 @@ func TestMountDraws_RunSuccess(t *testing.T) {
 	}
 	if len(body.Data.Assignments) != 2 {
 		t.Errorf("len(assignments) = %d, want 2", len(body.Data.Assignments))
+	}
+}
+
+func TestMountDraws_UpdateAlreadyRunReturns409(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDrawStore{err: api.ErrDrawAlreadyRun}
+	router := mountTestDraws(fake)
+
+	req := httptest.NewRequest(
+		http.MethodPut, "/drawers/1/draws/1",
+		bytes.NewBufferString(`{"exchange_date":"2026-12-26T00:00:00Z","budget_amount":2500}`),
+	)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 

@@ -69,6 +69,39 @@ func normalizeExchangeDate(t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// UpdateDraw lets the organiser correct exchange_date/budget_amount while
+// the draw is still 'draft' -- once RunDraw has moved it past that status,
+// the exchange details are locked (ErrDrawAlreadyRun), mirroring RunDraw's
+// own status guard.
+func (s storeDraws) UpdateDraw(
+	ctx context.Context,
+	drawerID, id int64,
+	exchangeDate time.Time,
+	budgetAmount int64,
+) (api.Draw, error) {
+	existing, err := s.store.Queries.GetDraw(ctx, id)
+	if err != nil {
+		return api.Draw{}, mapDrawErr(err)
+	}
+	if existing.DrawerID != drawerID {
+		return api.Draw{}, api.ErrDrawNotFound
+	}
+	if existing.Status != drawStatusDraft {
+		return api.Draw{}, api.ErrDrawAlreadyRun
+	}
+
+	draw, err := s.store.Queries.UpdateDraw(ctx, sqlc.UpdateDrawParams{
+		ID:           id,
+		ExchangeDate: normalizeExchangeDate(exchangeDate),
+		BudgetAmount: budgetAmount,
+	})
+	if err != nil {
+		return api.Draw{}, fmt.Errorf("app: update draw: %w", err)
+	}
+
+	return toAPIDraw(draw), nil
+}
+
 func (s storeDraws) GetDraw(ctx context.Context, drawerID, id int64) (api.Draw, error) {
 	draw, err := s.store.Queries.GetDraw(ctx, id)
 	if err != nil {
