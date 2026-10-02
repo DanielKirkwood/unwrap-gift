@@ -10,6 +10,7 @@
         "phone": {
           "type": "string",
           "format": "tel",
+          "pattern": "^\\+[1-9]\\d{1,14}$",
           "title": "Phone Number",
           "ory.sh/kratos": {
             "credentials": {

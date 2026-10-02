@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 
 	sqlite "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -13,6 +14,10 @@ import (
 	"github.com/DanielKirkwood/unwrap-gift/internal/db"
 	"github.com/DanielKirkwood/unwrap-gift/internal/db/sqlc"
 )
+
+// e164Pattern matches E.164 phone numbers: a leading '+', then 2-15
+// digits, the first of which is nonzero.
+var e164Pattern = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 
 // storeMembers adapts *db.Store to api.MemberStore, converting between
 // sqlc's generated Member type and api.Member. GetMember/UpdateMember/
@@ -28,6 +33,10 @@ func (s storeMembers) CreateMember(
 	drawerID int64,
 	fullName, phoneNumber string,
 ) (api.Member, error) {
+	if !e164Pattern.MatchString(phoneNumber) {
+		return api.Member{}, api.ErrMemberInvalidPhoneNumber
+	}
+
 	member, err := s.store.Queries.CreateMember(ctx, sqlc.CreateMemberParams{
 		DrawerID:    drawerID,
 		FullName:    fullName,
@@ -74,6 +83,10 @@ func (s storeMembers) UpdateMember(
 	drawerID, id int64,
 	fullName, phoneNumber string,
 ) (api.Member, error) {
+	if !e164Pattern.MatchString(phoneNumber) {
+		return api.Member{}, api.ErrMemberInvalidPhoneNumber
+	}
+
 	existing, err := s.store.Queries.GetMember(ctx, id)
 	if err != nil {
 		return api.Member{}, mapMemberErr(err)
