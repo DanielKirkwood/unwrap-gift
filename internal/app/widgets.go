@@ -62,6 +62,10 @@ func (s storeWidgets) UpdateWidget(ctx context.Context, id int64, name string) (
 }
 
 func (s storeWidgets) DeleteWidget(ctx context.Context, id int64) error {
+	if _, err := s.store.Queries.GetWidget(ctx, id); err != nil {
+		return mapWidgetErr(err)
+	}
+
 	if err := s.store.Queries.DeleteWidget(ctx, id); err != nil {
 		return fmt.Errorf("app: delete widget: %w", err)
 	}

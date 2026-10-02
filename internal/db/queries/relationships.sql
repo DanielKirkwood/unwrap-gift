@@ -13,5 +13,9 @@ INSERT INTO relationships (phone_number_a, phone_number_b) VALUES (?, ?) RETURNI
 -- name: ListRelationshipsForPhoneNumber :many
 SELECT * FROM relationships WHERE phone_number_a = ? OR phone_number_b = ? ORDER BY id;
 
--- name: DeleteRelationship :exec
+-- DeleteRelationship is execrows, not exec, so the app layer can tell a
+-- delete of a nonexistent id apart from one that actually removed a row -
+-- there is deliberately no GetRelationship query to check existence with
+-- first (see RelationshipStore's doc comment).
+-- name: DeleteRelationship :execrows
 DELETE FROM relationships WHERE id = ?;

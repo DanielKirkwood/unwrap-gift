@@ -34,13 +34,20 @@ func (q *Queries) CreateRelationship(ctx context.Context, arg CreateRelationship
 	return i, err
 }
 
-const deleteRelationship = `-- name: DeleteRelationship :exec
+const deleteRelationship = `-- name: DeleteRelationship :execrows
 DELETE FROM relationships WHERE id = ?
 `
 
-func (q *Queries) DeleteRelationship(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteRelationship, id)
-	return err
+// DeleteRelationship is execrows, not exec, so the app layer can tell a
+// delete of a nonexistent id apart from one that actually removed a row -
+// there is deliberately no GetRelationship query to check existence with
+// first (see RelationshipStore's doc comment).
+func (q *Queries) DeleteRelationship(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRelationship, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const listRelationshipsForPhoneNumber = `-- name: ListRelationshipsForPhoneNumber :many

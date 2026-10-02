@@ -23,7 +23,11 @@ type Querier interface {
 	DeleteDraw(ctx context.Context, id int64) error
 	DeleteDrawer(ctx context.Context, id int64) error
 	DeleteMember(ctx context.Context, id int64) error
-	DeleteRelationship(ctx context.Context, id int64) error
+	// DeleteRelationship is execrows, not exec, so the app layer can tell a
+	// delete of a nonexistent id apart from one that actually removed a row -
+	// there is deliberately no GetRelationship query to check existence with
+	// first (see RelationshipStore's doc comment).
+	DeleteRelationship(ctx context.Context, id int64) (int64, error)
 	DeleteWidget(ctx context.Context, id int64) error
 	DeleteWishlistItem(ctx context.Context, id int64) error
 	GetDraw(ctx context.Context, id int64) (Draw, error)
