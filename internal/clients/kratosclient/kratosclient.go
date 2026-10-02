@@ -101,6 +101,32 @@ func (c *Client) GetLoginFlow(ctx context.Context, cookieHeader, flowID string) 
 	return flow, nil
 }
 
+// CreateBrowserLogoutFlow implements internal/web's LogoutFlowProvider by
+// asking Kratos for a one-time logout URL for the session cookieHeader
+// identifies, the way Kratos's own documented bring-your-own-UI browser
+// logout flow requires: the caller GETs this to obtain LogoutFlow.LogoutUrl,
+// then redirects the browser there to actually perform the logout (clearing
+// the session cookie) and land on returnTo. Mirrors GetLoginFlow's
+// no-sentinel-error convention — a cookie with no active session is a
+// normal, expected case (the user is already logged out), not a
+// programming error, left for internal/web/logout.go to handle.
+func (c *Client) CreateBrowserLogoutFlow(
+	ctx context.Context,
+	cookieHeader, returnTo string,
+) (*kratos.LogoutFlow, error) {
+	flow, resp, err := c.Public.FrontendAPI.CreateBrowserLogoutFlow(ctx).
+		Cookie(cookieHeader).
+		ReturnTo(returnTo).
+		Execute()
+	closeBody(resp)
+
+	if err != nil {
+		return nil, fmt.Errorf("kratosclient: create browser logout flow: %w", err)
+	}
+
+	return flow, nil
+}
+
 // CreateIdentity implements api.IdentityAdmin. password may be empty, in
 // which case the identity is created with no password credential.
 func (c *Client) CreateIdentity(ctx context.Context, traits map[string]any, password string) (*kratos.Identity, error) {

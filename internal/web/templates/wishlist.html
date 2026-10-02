@@ -5,7 +5,10 @@
 <div class="page">
   <header class="page-header">
     <div><wa-icon name="gift"></wa-icon> Hi{{if .FullName}} {{.FullName}}{{end}}</div>
-    <wa-badge variant="brand" pill>{{len .Items}}</wa-badge>
+    <div class="page-header-actions">
+      <wa-badge variant="brand" pill>{{len .Items}}</wa-badge>
+      <a href="/logout">Log out</a>
+    </div>
   </header>
 
   <wa-card>

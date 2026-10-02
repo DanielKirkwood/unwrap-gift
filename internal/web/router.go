@@ -31,6 +31,9 @@ type RouterDeps struct {
 	LoginFlows       LoginFlowProvider
 	KratosBrowserURL string
 
+	// LogoutFlows, when non-nil, mounts GET /logout behind the Auth group.
+	LogoutFlows LogoutFlowProvider
+
 	// WishlistItems, when non-nil, mounts the wishlist page and its htmx
 	// CRUD endpoints behind the Auth group.
 	WishlistItems WishlistItemStore
@@ -59,6 +62,9 @@ func NewWebRouter(deps RouterDeps) *chi.Mux {
 	r.Group(func(r chi.Router) {
 		if deps.Auth != nil {
 			r.Use(deps.Auth)
+		}
+		if deps.LogoutFlows != nil {
+			MountLogout(r, deps.LogoutFlows)
 		}
 		if deps.WishlistItems != nil {
 			adapter := Adapter{Logger: deps.Logger, Templates: deps.Templates}
