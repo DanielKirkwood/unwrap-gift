@@ -45,15 +45,18 @@ Requires Go, Docker, and [go-task](https://taskfile.dev/):
 
 ```sh
 cp .env.example .env
-task auth:up       # starts Kratos + Keto locally (Postgres, self-service UI, mailslurper)
+task auth:up       # starts Kratos + Keto locally (Postgres, mailslurper)
 task db:migrate
 task run
 ```
 
-Register a user at `http://localhost:4455/registration`, then set `KETO_SEED_ADMIN_IDENTITY_ID`
-in `.env` to that identity's ID and run `task db:seed` to grant it the admin role. See
-[`deploy/kratos/README.md`](deploy/kratos/README.md) and [`deploy/keto/README.md`](deploy/keto/README.md)
-for what each stack does and what changes in production.
+Identities are organiser-provisioned only (no self-service registration) — create one via Kratos's
+admin API (see [`deploy/kratos/README.md`](deploy/kratos/README.md) for the curl example), then set
+`KETO_SEED_ADMIN_IDENTITY_ID` in `.env` to that identity's ID and run `task db:seed` to grant it the
+admin role. Once auth and the database are both enabled, the login/wishlist web UI (`internal/web`)
+is at `http://localhost:8083`. See [`deploy/kratos/README.md`](deploy/kratos/README.md) and
+[`deploy/keto/README.md`](deploy/keto/README.md) for what each stack does and what changes in
+production.
 
 For the full contributor workflow — running tests, linting, regenerating sqlc code — see
 [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -8,6 +8,11 @@ package config
 // the typed config instead of EnvVars, so they never see fields for
 // features they don't own.
 
+// kratosFeatureName names the "kratos" feature, referenced by both its own
+// Feature.Name and other features' Requires lists (keto, web) — a shared
+// const instead of repeating the "kratos" string literal three times.
+const kratosFeatureName = "kratos"
+
 // ServiceConfig configures the three HTTP server ports. It's the one
 // feature DefaultRegistry registers with no RequiredEnv, so
 // ResolveFeatureEnabledState always enables it.
@@ -37,11 +42,26 @@ type OtelConfig struct {
 // set. CourierWebhookSecret also configures
 // api.CourierWebhookAuthMiddleware, which protects the courier webhook
 // mounted on the hidden router only when the kratos feature is enabled
-// (see internal/app/servers.go).
+// (see internal/app/servers.go). BrowserURL is the browser-reachable
+// Kratos public URL, consumed only by internal/web's login redirect —
+// distinct from PublicURL because in production the latter is a
+// container-internal hostname the browser can never reach.
 type KratosConfig struct {
 	PublicURL            string
 	AdminURL             string
 	CourierWebhookSecret string
+	BrowserURL           string
+}
+
+// WebConfig configures the "web" router/server (internal/web). It's only
+// built once the "web" feature is enabled, i.e. once its Requires
+// dependencies ("kratos" and "database") are both enabled — it declares no
+// RequiredEnv of its own, since WebPort always has a default (matching
+// PublicPort/ProtectedPort/HiddenPort) and login no longer needs a
+// separately-configured URL now that it's self-hosted rather than
+// delegated to an external UI.
+type WebConfig struct {
+	Port string
 }
 
 // KetoConfig configures the Ory Keto client ketoclient.New builds. It's
@@ -97,13 +117,19 @@ func DefaultRegistry() *Registry {
 	})
 
 	r.Register(Feature{
-		Name:        "kratos",
+		Name:        kratosFeatureName,
 		RequiredEnv: []string{"KratosPublicURL", "KratosAdminURL", "KratosCourierWebhookSecret"},
 		Build: func(e EnvVars) any {
+			browserURL := e.KratosBrowserURL
+			if browserURL == "" {
+				browserURL = e.KratosPublicURL
+			}
+
 			return KratosConfig{
 				PublicURL:            e.KratosPublicURL,
 				AdminURL:             e.KratosAdminURL,
 				CourierWebhookSecret: e.KratosCourierWebhookSecret,
+				BrowserURL:           browserURL,
 			}
 		},
 	})
@@ -111,7 +137,7 @@ func DefaultRegistry() *Registry {
 	r.Register(Feature{
 		Name:        "keto",
 		RequiredEnv: []string{"KetoReadURL", "KetoWriteURL"},
-		Requires:    []string{"kratos"},
+		Requires:    []string{kratosFeatureName},
 		Build: func(e EnvVars) any {
 			return KetoConfig{ReadURL: e.KetoReadURL, WriteURL: e.KetoWriteURL}
 		},
@@ -122,6 +148,14 @@ func DefaultRegistry() *Registry {
 		RequiredEnv: []string{"SevenAPIKey", "SevenSenderID"},
 		Build: func(e EnvVars) any {
 			return SMSConfig{APIKey: e.SevenAPIKey, SenderID: e.SevenSenderID}
+		},
+	})
+
+	r.Register(Feature{
+		Name:     "web",
+		Requires: []string{kratosFeatureName, "database"},
+		Build: func(e EnvVars) any {
+			return WebConfig{Port: e.WebPort}
 		},
 	})
 

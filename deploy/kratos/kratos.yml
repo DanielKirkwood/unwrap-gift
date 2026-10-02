@@ -18,41 +18,62 @@ serve:
     base_url: http://kratos:4434/
 
 selfservice:
-  default_browser_return_url: http://127.0.0.1:4455/
+  # app.* (Phase 8's web router, port 8083) replaces the old
+  # kratos-selfservice-ui-node reference UI (removed from
+  # docker-compose.kratos.yml) — login now drives this Kratos browser flow
+  # directly from our own /login page instead of a separate service.
+  default_browser_return_url: http://127.0.0.1:8083/wishlist
   allowed_return_urls:
-    - http://127.0.0.1:4455
+    - http://127.0.0.1:8083
+    # Browsers treat 127.0.0.1 and localhost as different hosts, so both
+    # need allow-listing here for local dev to tolerate either — the app
+    # itself is host-agnostic (it builds return_to from the incoming
+    # request's own Host header), this is purely a Kratos-side allow-list.
+    - http://localhost:8083
 
   methods:
+    # Kratos enables the password method by default even though it's never
+    # configured "on" anywhere in this file — confirmed empirically: a
+    # /self-service/login flow rendered both a code form AND a password
+    # form (with no password ever set on any identity, since
+    # identity.schema.json has no password-eligible trait) until this was
+    # added. This app is SMS-code-only; password must be off explicitly.
+    password:
+      enabled: false
     code:
       passwordless_enabled: true
 
   flows:
+    # error/settings/registration below are inert placeholders, not real
+    # pages — nothing in this app triggers them (no registration UI since
+    # identities are organiser-provisioned only; no settings UI; errors are
+    # handled by internal/web's own error.html). Pointed at the web app's
+    # root rather than left dangling at the removed :4455 service.
     error:
-      ui_url: http://127.0.0.1:4455/error
+      ui_url: http://127.0.0.1:8083/
 
     settings:
-      ui_url: http://127.0.0.1:4455/settings
+      ui_url: http://127.0.0.1:8083/
       privileged_session_max_age: 15m
 
+    # Disabled outright rather than left configured-but-dead: neither
+    # applies to a passwordless-SMS-only, organiser-provisioned identity
+    # model (no password to recover, no email to verify).
     recovery:
-      enabled: true
-      ui_url: http://127.0.0.1:4455/recovery
+      enabled: false
 
     verification:
-      enabled: true
-      ui_url: http://127.0.0.1:4455/verification
-      after:
-        default_browser_return_url: http://127.0.0.1:4455/
+      enabled: false
 
     logout:
       after:
-        default_browser_return_url: http://127.0.0.1:4455/login
+        default_browser_return_url: http://127.0.0.1:8083/login
 
     login:
-      ui_url: http://127.0.0.1:4455/login
+      ui_url: http://127.0.0.1:8083/login
 
     registration:
-      ui_url: http://127.0.0.1:4455/registration
+      ui_url: http://127.0.0.1:8083/
       after:
         password:
           hooks:

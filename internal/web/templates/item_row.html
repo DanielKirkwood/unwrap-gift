@@ -1,0 +1,27 @@
+<wa-card id="item-{{.ID}}">
+  <div slot="header">{{.ItemName}}</div>
+  {{if .Size}}<div>Size: {{.Size}}</div>{{end}}
+  {{if .URL}}<div><a href="{{.URL}}" target="_blank" rel="noopener noreferrer">View item</a></div>{{end}}
+  <div slot="footer" class="item-actions">
+    <wa-button
+      appearance="plain"
+      size="small"
+      hx-get="/wishlist/{{.ID}}/edit"
+      hx-target="#item-{{.ID}}"
+      hx-swap="outerHTML"
+    >
+      <wa-icon name="pen"></wa-icon> Edit
+    </wa-button>
+    <wa-button
+      appearance="plain"
+      size="small"
+      variant="danger"
+      hx-delete="/wishlist/{{.ID}}"
+      hx-target="#item-{{.ID}}"
+      hx-swap="delete"
+      hx-confirm="Delete this item?"
+    >
+      <wa-icon name="trash"></wa-icon> Delete
+    </wa-button>
+  </div>
+</wa-card>

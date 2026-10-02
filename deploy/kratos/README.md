@@ -5,7 +5,7 @@ This directory holds everything needed to run Ory Kratos for **local development
 (optionally) `docker-compose.app.yml`. Start/stop it with:
 
 ```sh
-task kratos:up    # Postgres, Kratos, self-service UI, mailslurper
+task kratos:up    # Postgres, Kratos, mailslurper
 task kratos:down
 task kratos:logs
 ```
@@ -23,7 +23,13 @@ curl -X POST http://localhost:4434/admin/identities \
   -d '{"schema_id":"default","traits":{"phone":"+15550001234","full_name":"Test User"}}'
 ```
 
-Then log in with a **native** (non-browser) code flow — start one at
+To log in via the browser (Phase 8's web UI, `internal/web`), run `task run` with `WEB_PORT=8083`
+(the default) set, and visit `http://127.0.0.1:8083/wishlist` — logged out, it redirects through
+`/login` → Kratos's browser flow → back to `/login?flow=...`, which renders the phone-number form,
+then the code form (`wa-otp-input`) once submitted. There is no longer a separate self-service UI
+container; `internal/web` drives Kratos's browser flow directly (see `internal/web/login.go`).
+
+To log in without a browser, use a **native** (non-browser) code flow instead — start one at
 `GET http://localhost:4433/self-service/login/api`, submit
 `{"method":"code","identifier":"<phone>"}` to the returned flow's action URL (expect a `400`
 carrying the *updated*, still in-progress flow — that's Kratos's own native-flow signal to submit

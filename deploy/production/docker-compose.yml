@@ -69,18 +69,6 @@ services:
     command: serve -c /etc/config/kratos/kratos.yml
     restart: unless-stopped
 
-  kratos-selfservice-ui-node:
-    image: oryd/kratos-selfservice-ui-node:v1.3.1
-    environment:
-      KRATOS_PUBLIC_URL: http://kratos:4433/
-      KRATOS_BROWSER_URL: https://auth.${DOMAIN}/
-      COOKIE_SECRET: ${UI_COOKIE_SECRET}
-      CSRF_COOKIE_NAME: ax-csrf-cookie
-      CSRF_COOKIE_SECRET: ${UI_CSRF_COOKIE_SECRET}
-    depends_on:
-      - kratos
-    restart: unless-stopped
-
   postgres-keto:
     image: postgres:17
     environment:
@@ -146,6 +134,10 @@ services:
       KRATOS_PUBLIC_URL: http://kratos:4433
       KRATOS_ADMIN_URL: http://kratos:4434
       KRATOS_COURIER_WEBHOOK_SECRET: ${KRATOS_COURIER_WEBHOOK_SECRET}
+      # Browser-reachable Kratos URL for internal/web's login redirect —
+      # distinct from KRATOS_PUBLIC_URL above, which is container-internal
+      # and unreachable from the user's browser.
+      KRATOS_BROWSER_URL: https://auth.${DOMAIN}
       KETO_READ_URL: http://keto:4466
       KETO_WRITE_URL: http://keto:4467
       SEVEN_API_KEY: ${SEVEN_API_KEY}
@@ -165,7 +157,6 @@ services:
     depends_on:
       - unwrap-gift
       - kratos
-      - kratos-selfservice-ui-node
     ports:
       - "80:80"
       - "443:443"

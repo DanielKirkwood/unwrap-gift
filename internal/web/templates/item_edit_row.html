@@ -1,0 +1,22 @@
+<wa-card id="item-{{.ID}}">
+  <div slot="header">Edit item</div>
+  {{if .Error}}<wa-callout variant="danger" appearance="outlined">{{.Error}}</wa-callout>{{end}}
+  <form class="stack" hx-put="/wishlist/{{.ID}}" hx-target="#item-{{.ID}}" hx-swap="outerHTML">
+    <wa-input name="item_name" label="Item" value="{{.ItemName}}" required autofocus></wa-input>
+    <wa-input name="size" label="Size (optional)" value="{{if .Size}}{{.Size}}{{end}}"></wa-input>
+    <wa-input name="url" type="url" label="Link (optional)" value="{{if .URL}}{{.URL}}{{end}}"></wa-input>
+    <div class="item-actions">
+      <wa-button type="submit" variant="brand" appearance="filled">Save</wa-button>
+      <wa-button
+        type="button"
+        appearance="plain"
+        hx-get="/wishlist"
+        hx-select="#item-{{.ID}}"
+        hx-target="#item-{{.ID}}"
+        hx-swap="outerHTML"
+      >
+        Cancel
+      </wa-button>
+    </div>
+  </form>
+</wa-card>

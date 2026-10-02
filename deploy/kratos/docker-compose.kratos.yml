@@ -62,21 +62,6 @@ services:
     networks:
       - kratos
 
-  kratos-selfservice-ui-node:
-    image: oryd/kratos-selfservice-ui-node:v1.3.1
-    environment:
-      KRATOS_PUBLIC_URL: http://kratos:4433/
-      KRATOS_BROWSER_URL: http://127.0.0.1:4433/
-      COOKIE_SECRET: PLEASE-CHANGE-ME-DEV-ONLY
-      CSRF_COOKIE_NAME: ax-csrf-cookie
-      CSRF_COOKIE_SECRET: PLEASE-CHANGE-ME-DEV-ONLY-TOO
-    ports:
-      - "4455:3000"
-    depends_on:
-      - kratos
-    networks:
-      - kratos
-
   mailslurper:
     image: oryd/mailslurper:latest-smtps
     ports:

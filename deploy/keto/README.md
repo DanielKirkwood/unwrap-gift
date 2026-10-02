@@ -18,9 +18,10 @@ Then set `KETO_READ_URL=http://localhost:4466` and `KETO_WRITE_URL=http://localh
 
 ## Seeding the admin role
 
-1. Register a user at `http://localhost:4455/registration` (Kratos's self-service UI) to get a
-   Kratos identity ID — check `kratos-selfservice-ui-node`'s session response, or query
-   `GET {KRATOS_ADMIN_URL}/admin/identities`.
+1. Create an identity via Kratos's admin API to get a Kratos identity ID — identities are
+   organiser-provisioned only, there is no self-service registration (see
+   `deploy/kratos/README.md`'s curl example), or query `GET {KRATOS_ADMIN_URL}/admin/identities`
+   for an identity created some other way.
 2. Set `KETO_SEED_ADMIN_IDENTITY_ID` in `.env` to that identity's ID.
 3. Run `task db:seed`. This creates two relation tuples (see `identities.ts`):
    - `Role:admin#members@<identity-id>`

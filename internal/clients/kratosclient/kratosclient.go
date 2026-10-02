@@ -81,6 +81,26 @@ func (c *Client) ToSession(ctx context.Context, cookieHeader string) (*kratos.Se
 	return session, nil
 }
 
+// GetLoginFlow implements internal/web's LoginFlowProvider by fetching the
+// login flow identified by flowID, forwarding cookieHeader (the incoming
+// request's raw Cookie header) the way Kratos's own documented
+// bring-your-own-UI integration pattern requires. Unlike the identity
+// methods below, an invalid/expired flow ID is a normal, expected
+// user-facing case (the flow expired while the user was slow to respond),
+// not a 404-worthy programming error — so, unlike GetIdentity, this
+// deliberately has no sentinel-error mapping; internal/web/login.go handles
+// any error by redirecting to start a fresh flow.
+func (c *Client) GetLoginFlow(ctx context.Context, cookieHeader, flowID string) (*kratos.LoginFlow, error) {
+	flow, resp, err := c.Public.FrontendAPI.GetLoginFlow(ctx).Id(flowID).Cookie(cookieHeader).Execute()
+	closeBody(resp)
+
+	if err != nil {
+		return nil, fmt.Errorf("kratosclient: get login flow: %w", err)
+	}
+
+	return flow, nil
+}
+
 // CreateIdentity implements api.IdentityAdmin. password may be empty, in
 // which case the identity is created with no password credential.
 func (c *Client) CreateIdentity(ctx context.Context, traits map[string]any, password string) (*kratos.Identity, error) {

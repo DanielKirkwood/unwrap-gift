@@ -14,16 +14,17 @@ import (
 )
 
 // NewStartCmd builds the `start` command group: the combined `start`
-// (all three servers) plus one subcommand per router for independent
+// (all four servers) plus one subcommand per router for independent
 // deployment/scaling.
 func NewStartCmd() *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "start",
-		Short: "Start the public, protected, and hidden API servers together",
-		Long: `Starts the public, protected, and hidden API servers in the same
+		Short: "Start the public, protected, hidden, and web API servers together",
+		Long: `Starts the public, protected, hidden, and web servers in the same
 process and blocks until an interrupt/TERM signal arrives, then shuts down
-gracefully. Use the publicApi/protectedApi/hiddenApi subcommands instead to
-run and scale one router independently (e.g. as separate deployments).`,
+gracefully. Use the publicApi/protectedApi/hiddenApi/webApi subcommands
+instead to run and scale one router independently (e.g. as separate
+deployments).`,
 		Example: "  unwrap-gift start",
 		RunE:    runStart(selectAll),
 	}
@@ -56,21 +57,34 @@ of the public and protected servers.`,
 		Example: "  unwrap-gift start hiddenApi",
 		RunE:    runStart(selectHidden),
 	})
+	startCmd.AddCommand(&cobra.Command{
+		Use:   "webApi",
+		Short: "Start only the web (login + wishlist UI) server",
+		Long: `Starts just the web router's server and blocks until an
+interrupt/TERM signal arrives, then shuts down gracefully. Use this to deploy
+or scale the browser-facing login/wishlist UI independently of the JSON API
+routers.`,
+		Example: "  unwrap-gift start webApi",
+		RunE:    runStart(selectWeb),
+	})
 
 	return startCmd
 }
 
-// selectFunc picks which of the three built servers a start variant should
-// actually run. All three are always built (BuildServers is cheap — it
+// selectFunc picks which of the four built servers a start variant should
+// actually run. All four are always built (BuildServers is cheap — it
 // constructs [http.Server] values, it doesn't bind sockets), so
 // App.Shutdown can uniformly shut down a.Servers regardless of which subset
 // was started: Shutdown on a server that was never started is a no-op.
 type selectFunc func(*app.Servers) []*http.Server
 
-func selectAll(s *app.Servers) []*http.Server       { return []*http.Server{s.Public, s.Protected, s.Hidden} }
+func selectAll(s *app.Servers) []*http.Server {
+	return []*http.Server{s.Public, s.Protected, s.Hidden, s.Web}
+}
 func selectPublic(s *app.Servers) []*http.Server    { return []*http.Server{s.Public} }
 func selectProtected(s *app.Servers) []*http.Server { return []*http.Server{s.Protected} }
 func selectHidden(s *app.Servers) []*http.Server    { return []*http.Server{s.Hidden} }
+func selectWeb(s *app.Servers) []*http.Server       { return []*http.Server{s.Web} }
 
 func runStart(sel selectFunc) func(cmd *cobra.Command, _ []string) error {
 	return func(cmd *cobra.Command, _ []string) error {

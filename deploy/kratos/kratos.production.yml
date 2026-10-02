@@ -21,48 +21,59 @@ serve:
       allowed_origins:
         - https://${DOMAIN}
         - https://api.${DOMAIN}
-        - https://login.${DOMAIN}
+        - https://app.${DOMAIN}
   admin:
     # Never published to the host in docker-compose.yml — reachable only
     # from unwrap-gift, over the compose network, by container name.
     base_url: http://kratos:4434/
 
 selfservice:
-  default_browser_return_url: https://login.${DOMAIN}/
+  # app.* (Phase 8's web router) replaces the old kratos-selfservice-ui-node
+  # reference UI (removed from docker-compose.yml/Caddyfile) — login now
+  # drives this Kratos browser flow directly from our own /login page.
+  default_browser_return_url: https://app.${DOMAIN}/wishlist
   allowed_return_urls:
-    - https://login.${DOMAIN}
+    - https://app.${DOMAIN}
 
   methods:
+    # See kratos.yml's matching comment — Kratos defaults password to
+    # enabled even though it's never configured "on" here; must be off
+    # explicitly for this SMS-code-only app.
+    password:
+      enabled: false
     code:
       passwordless_enabled: true
 
   flows:
+    # error/settings/registration below are inert placeholders, not real
+    # pages — nothing in this app triggers them (no registration UI since
+    # identities are organiser-provisioned only; no settings UI; errors are
+    # handled by internal/web's own error.html).
     error:
-      ui_url: https://login.${DOMAIN}/error
+      ui_url: https://app.${DOMAIN}/
 
     settings:
-      ui_url: https://login.${DOMAIN}/settings
+      ui_url: https://app.${DOMAIN}/
       privileged_session_max_age: 15m
 
+    # Disabled outright rather than left configured-but-dead: neither
+    # applies to a passwordless-SMS-only, organiser-provisioned identity
+    # model (no password to recover, no email to verify).
     recovery:
-      enabled: true
-      ui_url: https://login.${DOMAIN}/recovery
+      enabled: false
 
     verification:
-      enabled: true
-      ui_url: https://login.${DOMAIN}/verification
-      after:
-        default_browser_return_url: https://login.${DOMAIN}/
+      enabled: false
 
     logout:
       after:
-        default_browser_return_url: https://login.${DOMAIN}/login
+        default_browser_return_url: https://app.${DOMAIN}/login
 
     login:
-      ui_url: https://login.${DOMAIN}/login
+      ui_url: https://app.${DOMAIN}/login
 
     registration:
-      ui_url: https://login.${DOMAIN}/registration
+      ui_url: https://app.${DOMAIN}/
       after:
         password:
           hooks:

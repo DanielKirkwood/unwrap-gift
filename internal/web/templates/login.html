@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "head" .}}</head>
+<body>
+<div class="page">
+  <wa-card class="login-card">
+    <div slot="header"><wa-icon name="gift"></wa-icon> Secret Santa — Sign in</div>
+
+    {{range .Messages}}
+      <wa-callout variant="{{if eq .Type "error"}}danger{{else}}brand{{end}}" appearance="outlined">
+        {{.Text}}
+      </wa-callout>
+    {{end}}
+
+    {{/*
+      Generic, node-driven rendering: the same markup renders every step of
+      Kratos's code-method login flow (phone entry, then code entry, plus
+      any node Kratos adds, e.g. a resend button) because it special-cases
+      by field name/type rather than hardcoding one template per step.
+      The form posts directly to Kratos's own public endpoint (.Action) —
+      not back to this app.
+    */}}
+    <form class="stack" action="{{.Action}}" method="{{.Method}}">
+      {{range .Fields}}
+        {{if .Hidden}}
+          <input type="hidden" name="{{.Name}}" value="{{.Value}}">
+        {{else if eq .Name "code"}}
+          <wa-otp-input name="{{.Name}}" length="6" type="numeric" label="{{.Label}}" autofocus></wa-otp-input>
+        {{else if eq .Type "submit"}}
+          {{/* name/value are required here — Kratos uses this field
+               (typically "method"="code") to pick which login strategy the
+               submission is for. Omitting them means the browser submits
+               no strategy selector at all, and Kratos rejects the request
+               with "Could not find a strategy to log you in with." */}}
+          <wa-button type="submit" name="{{.Name}}" value="{{.Value}}" variant="brand" appearance="filled">{{.Label}}</wa-button>
+        {{else}}
+          <wa-input
+            name="{{.Name}}"
+            type="tel"
+            label="{{.Label}}"
+            autocomplete="tel"
+            {{if .Required}}required{{end}}
+            autofocus
+          ></wa-input>
+        {{end}}
+      {{end}}
+    </form>
+  </wa-card>
+</div>
+</body>
+</html>

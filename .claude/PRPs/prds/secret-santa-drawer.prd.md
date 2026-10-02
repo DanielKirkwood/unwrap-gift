@@ -158,7 +158,7 @@ Both real draws (family, friends) run end-to-end: organiser creates a drawer, ad
 | 5 | Organiser API | Drawer/Member/Relationship CRUD, Draw creation + run-draw endpoint (hidden router, Auth+Authz) | complete | with 6 | 1, 4 | [#6](https://github.com/DanielKirkwood/unwrap-gift/issues/6) · [plan](../plans/completed/secret-santa-organiser-api.plan.md) · [report](../reports/secret-santa-organiser-api-report.md) |
 | 6 | Participant API | Wishlist CRUD, self-serve (protected router, Auth only) | complete | with 5 | 1, 2 | [#7](https://github.com/DanielKirkwood/unwrap-gift/issues/7) · [plan](../plans/completed/secret-santa-participant-api.plan.md) · [report](../reports/secret-santa-participant-api-report.md) |
 | 7 | Notification pipeline | On draw finalize, compose + send SMS per member via smsclient | complete | - | 3, 5 | [#8](https://github.com/DanielKirkwood/unwrap-gift/issues/8) · [plan](../plans/completed/secret-santa-notification-pipeline.plan.md) · [report](../reports/secret-santa-notification-pipeline-report.md) |
-| 8 | Wishlist web UI | Minimal frontend: SMS-code login + wishlist CRUD | pending | - | 2, 6 | [#9](https://github.com/DanielKirkwood/unwrap-gift/issues/9) |
+| 8 | Wishlist web UI | Minimal frontend: SMS-code login + wishlist CRUD | complete | - | 2, 6 | [#9](https://github.com/DanielKirkwood/unwrap-gift/issues/9) · [plan](../plans/completed/secret-santa-wishlist-web-ui.plan.md) · [report](../reports/secret-santa-wishlist-web-ui-report.md) |
 
 **Tracking**: [Epic #1](https://github.com/DanielKirkwood/unwrap-gift/issues/1) · [Project board](https://github.com/users/DanielKirkwood/projects/6)
 

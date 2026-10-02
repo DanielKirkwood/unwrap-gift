@@ -22,6 +22,7 @@ type EnvVars struct {
 	PublicPort    string `env:"PUBLIC_PORT"    default:"8080"`
 	ProtectedPort string `env:"PROTECTED_PORT" default:"8081"`
 	HiddenPort    string `env:"HIDDEN_PORT"    default:"8082"`
+	WebPort       string `env:"WEB_PORT"       default:"8083"`
 
 	DatabasePath string `env:"DATABASE_PATH"`
 
@@ -30,6 +31,14 @@ type EnvVars struct {
 	KratosPublicURL            string `env:"KRATOS_PUBLIC_URL"`
 	KratosAdminURL             string `env:"KRATOS_ADMIN_URL"`
 	KratosCourierWebhookSecret string `env:"KRATOS_COURIER_WEBHOOK_SECRET"`
+	// KratosBrowserURL is the Kratos public API's browser-reachable URL,
+	// used only to build the redirect target for the login flow's
+	// browser-init step (internal/web). It's distinct from KratosPublicURL
+	// because in production the latter is a container-internal hostname the
+	// browser can never reach. When unset, internal/config/features.go's
+	// KratosConfig.Build falls back to KratosPublicURL — correct for local
+	// dev, where both already point at the same browser-reachable host.
+	KratosBrowserURL string `env:"KRATOS_BROWSER_URL"`
 
 	KetoReadURL  string `env:"KETO_READ_URL"`
 	KetoWriteURL string `env:"KETO_WRITE_URL"`
