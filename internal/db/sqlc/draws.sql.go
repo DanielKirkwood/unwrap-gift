@@ -148,6 +148,36 @@ func (q *Queries) ListRecentCompletedDrawsByDrawer(ctx context.Context, arg List
 	return items, nil
 }
 
+const updateDraw = `-- name: UpdateDraw :one
+UPDATE draws SET exchange_date = ?, budget_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, drawer_id, exchange_date, budget_amount, status, created_at, updated_at
+`
+
+type UpdateDrawParams struct {
+	ExchangeDate time.Time `json:"exchange_date"`
+	BudgetAmount int64     `json:"budget_amount"`
+	ID           int64     `json:"id"`
+}
+
+// UpdateDraw only ever touches exchange_date/budget_amount, not status -
+// that stays UpdateDrawStatus's job. The app layer is responsible for
+// rejecting an update once a draw has left 'draft' status; this query has
+// no WHERE status = 'draft' guard, so a caller that skips that check would
+// silently succeed against an already-run draw.
+func (q *Queries) UpdateDraw(ctx context.Context, arg UpdateDrawParams) (Draw, error) {
+	row := q.db.QueryRowContext(ctx, updateDraw, arg.ExchangeDate, arg.BudgetAmount, arg.ID)
+	var i Draw
+	err := row.Scan(
+		&i.ID,
+		&i.DrawerID,
+		&i.ExchangeDate,
+		&i.BudgetAmount,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateDrawStatus = `-- name: UpdateDrawStatus :one
 UPDATE draws SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, drawer_id, exchange_date, budget_amount, status, created_at, updated_at
 `

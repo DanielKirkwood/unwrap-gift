@@ -71,12 +71,23 @@ type DrawStore interface {
 	GetDraw(ctx context.Context, drawerID, id int64) (Draw, error)
 	ListDrawsByDrawer(ctx context.Context, drawerID int64) ([]Draw, error)
 	ListAssignmentsByDraw(ctx context.Context, drawerID, drawID int64) ([]Assignment, error)
+	UpdateDraw(ctx context.Context, drawerID, id int64, exchangeDate time.Time, budgetAmount int64) (Draw, error)
 	RunDraw(ctx context.Context, drawerID, drawID int64) (Draw, []Assignment, error)
 }
 
 // drawCreateRequest is the request body for POST
 // /drawers/{drawerID}/draws.
 type drawCreateRequest struct {
+	ExchangeDate time.Time `json:"exchange_date"`
+	BudgetAmount int64     `json:"budget_amount"`
+}
+
+// drawUpdateRequest is the request body for PUT
+// /drawers/{drawerID}/draws/{id} -- a full replace of exchange_date/
+// budget_amount, matching drawerUpdateRequest's style, not a partial PATCH.
+// Only valid while the draw is still 'draft'; DrawStore.UpdateDraw returns
+// ErrDrawAlreadyRun otherwise.
+type drawUpdateRequest struct {
 	ExchangeDate time.Time `json:"exchange_date"`
 	BudgetAmount int64     `json:"budget_amount"`
 }
@@ -98,6 +109,7 @@ func MountDraws(r chi.Router, draws DrawStore, adapter Adapter) {
 		r.Get("/", adapter.Adapt(listDraws(draws)))
 		r.Route("/{id}", func(r chi.Router) {
 			r.Get("/", adapter.Adapt(getDraw(draws)))
+			r.Put("/", adapter.Adapt(updateDraw(draws)))
 			r.Get("/assignments", adapter.Adapt(listAssignments(draws)))
 			r.Post("/run", adapter.Adapt(runDraw(draws)))
 		})
@@ -154,6 +166,32 @@ func getDraw(draws DrawStore) HandlerFunc {
 		}
 
 		draw, err := draws.GetDraw(r.Context(), drawerID, id)
+		if err != nil {
+			return err
+		}
+
+		return WriteData(w, http.StatusOK, draw)
+	}
+}
+
+func updateDraw(draws DrawStore) HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		drawerID, err := drawerIDParam(r)
+		if err != nil {
+			return err
+		}
+
+		id, err := drawID(r)
+		if err != nil {
+			return err
+		}
+
+		var req drawUpdateRequest
+		if decodeErr := json.NewDecoder(r.Body).Decode(&req); decodeErr != nil {
+			return fmt.Errorf("api: decode update draw request: %w", decodeErr)
+		}
+
+		draw, err := draws.UpdateDraw(r.Context(), drawerID, id, req.ExchangeDate, req.BudgetAmount)
 		if err != nil {
 			return err
 		}

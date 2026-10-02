@@ -56,6 +56,12 @@ type Querier interface {
 	ListWidgets(ctx context.Context) ([]Widget, error)
 	ListWishlistItemsByPhoneNumber(ctx context.Context, phoneNumber string) ([]WishlistItem, error)
 	Ping(ctx context.Context) (int64, error)
+	// UpdateDraw only ever touches exchange_date/budget_amount, not status -
+	// that stays UpdateDrawStatus's job. The app layer is responsible for
+	// rejecting an update once a draw has left 'draft' status; this query has
+	// no WHERE status = 'draft' guard, so a caller that skips that check would
+	// silently succeed against an already-run draw.
+	UpdateDraw(ctx context.Context, arg UpdateDrawParams) (Draw, error)
 	UpdateDrawStatus(ctx context.Context, arg UpdateDrawStatusParams) (Draw, error)
 	UpdateDrawer(ctx context.Context, arg UpdateDrawerParams) (Drawer, error)
 	UpdateMember(ctx context.Context, arg UpdateMemberParams) (Member, error)

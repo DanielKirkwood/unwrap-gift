@@ -10,6 +10,14 @@ SELECT * FROM draws WHERE drawer_id = ? ORDER BY exchange_date DESC;
 -- name: UpdateDrawStatus :one
 UPDATE draws SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;
 
+-- UpdateDraw only ever touches exchange_date/budget_amount, not status -
+-- that stays UpdateDrawStatus's job. The app layer is responsible for
+-- rejecting an update once a draw has left 'draft' status; this query has
+-- no WHERE status = 'draft' guard, so a caller that skips that check would
+-- silently succeed against an already-run draw.
+-- name: UpdateDraw :one
+UPDATE draws SET exchange_date = ?, budget_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;
+
 -- name: DeleteDraw :exec
 DELETE FROM draws WHERE id = ?;
 

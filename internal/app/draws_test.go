@@ -574,3 +574,77 @@ func TestStoreDraws_CreateDrawNormalizesExchangeDateForOrdering(t *testing.T) {
 		)
 	}
 }
+
+// TestStoreDraws_UpdateDraw_DraftSucceeds covers the gap codebase-review-
+// 2026-10-02.md's "Must-have MoSCoW capabilities" #1 (issue #28) flagged:
+// an organiser previously had no way to correct a mistyped exchange_date/
+// budget_amount before running the draw.
+func TestStoreDraws_UpdateDraw_DraftSucceeds(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
+
+	newDate := time.Date(2026, time.December, 26, 0, 0, 0, 0, time.UTC)
+	updated, updateErr := s.UpdateDraw(t.Context(), drawer.ID, draw.ID, newDate, 2500)
+	if updateErr != nil {
+		t.Fatalf("UpdateDraw() error = %v, want nil", updateErr)
+	}
+	if !updated.ExchangeDate.Equal(newDate) {
+		t.Errorf("UpdateDraw() ExchangeDate = %v, want %v", updated.ExchangeDate, newDate)
+	}
+	if updated.BudgetAmount != 2500 {
+		t.Errorf("UpdateDraw() BudgetAmount = %d, want 2500", updated.BudgetAmount)
+	}
+}
+
+func TestStoreDraws_UpdateDraw_AlreadyRunReturnsConflict(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	draw := createCompletedDraw(t, store, drawer.ID, time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC))
+
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
+
+	_, updateErr := s.UpdateDraw(t.Context(), drawer.ID, draw.ID, time.Now(), 2500)
+	if !errors.Is(updateErr, api.ErrDrawAlreadyRun) {
+		t.Errorf("UpdateDraw() (already run) error = %v, want api.ErrDrawAlreadyRun", updateErr)
+	}
+}
+
+func TestStoreDraws_UpdateDraw_NonexistentReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
+
+	_, updateErr := s.UpdateDraw(t.Context(), 1, 999, time.Now(), 2500)
+	if !errors.Is(updateErr, api.ErrDrawNotFound) {
+		t.Errorf("UpdateDraw() (nonexistent) error = %v, want api.ErrDrawNotFound", updateErr)
+	}
+}
