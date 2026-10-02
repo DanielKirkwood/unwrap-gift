@@ -68,6 +68,10 @@ func testMemberAdapter() api.Adapter {
 		Logger: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
 		ErrorsMap: api.ErrorsMap{
 			{Match: errFakeMemberNotFound, Problem: api.Problem{Status: http.StatusNotFound, Title: "Not Found"}},
+			{
+				Match:   api.ErrMemberInvalidPhoneNumber,
+				Problem: api.Problem{Status: http.StatusBadRequest, Title: "Bad Request"},
+			},
 		},
 	}
 }
@@ -183,6 +187,25 @@ func TestMountMembers_GetWrongDrawerReturns404(t *testing.T) {
 	}
 	if fake.lastDrawerID != 1 || fake.lastID != 5 {
 		t.Errorf("lastDrawerID/lastID = %d/%d, want 1/5", fake.lastDrawerID, fake.lastID)
+	}
+}
+
+func TestMountMembers_CreateInvalidPhoneNumberReturns400(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeMemberStore{err: api.ErrMemberInvalidPhoneNumber}
+	router := mountTestMembers(fake)
+
+	req := httptest.NewRequest(
+		http.MethodPost, "/drawers/1/members",
+		bytes.NewBufferString(`{"full_name":"Alice","phone_number":"07700900000"}`),
+	)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 

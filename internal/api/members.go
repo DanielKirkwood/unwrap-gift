@@ -20,6 +20,14 @@ var ErrMemberNotFound = errors.New("api: member not found")
 // the drawer already has a member with that phone number.
 var ErrMemberPhoneAlreadyExists = errors.New("api: member with this phone number already exists in this drawer")
 
+// ErrMemberInvalidPhoneNumber is returned by MemberStore.CreateMember/
+// UpdateMember when phoneNumber isn't a valid E.164 number (e.g.
+// "+447700900000") -- catching a typo here, rather than letting it persist
+// silently, is what keeps a Member's phone number matching the Kratos
+// identity's "phone" trait it's joined to by string equality everywhere
+// else in this codebase (wishlist lookups, SMS notification, login).
+var ErrMemberInvalidPhoneNumber = errors.New("api: member phone number must be in E.164 format")
+
 // Member is api's own representation of a member row, decoupled from
 // internal/db/sqlc.Member.
 type Member struct {

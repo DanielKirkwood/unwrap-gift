@@ -248,6 +248,13 @@ func wireOrganiserAPI(deps *api.RouterDeps, a *App) {
 					Detail: "a member with this phone number already exists in this drawer",
 				},
 			},
+			{
+				Match: api.ErrMemberInvalidPhoneNumber,
+				Problem: api.Problem{
+					Status: http.StatusBadRequest, Title: "Bad Request",
+					Detail: "member phone number must be in E.164 format (e.g. +447700900000)",
+				},
+			},
 		},
 	}
 
