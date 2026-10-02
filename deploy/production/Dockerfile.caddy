@@ -1,0 +1,18 @@
+# Custom Caddy build adding github.com/mholt/caddy-ratelimit, which the
+# stock caddy:2-alpine image doesn't bundle -- needed to rate-limit
+# auth.{$DOMAIN}'s SMS login-code endpoint (see Caddyfile's rate_limit
+# block / codebase-review-2026-10-02.md "Fix before you run the real
+# draws" #8, issue #24: without this, anyone can POST an arbitrary phone
+# number to Kratos's public login flow repeatedly, triggering unlimited
+# billed SMS sends via seven.io to that number).
+FROM caddy:2-builder-alpine AS builder
+
+# Pinned to a commit well past caddy-ratelimit's only tagged release
+# (v0.1.0, which was verified broken -- it silently accepted Caddyfile
+# config but never actually rate-limited anything at runtime).
+RUN xcaddy build \
+    --with github.com/mholt/caddy-ratelimit@v0.1.1-0.20260612195517-5625512f24f6
+
+FROM caddy:2-alpine
+
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
