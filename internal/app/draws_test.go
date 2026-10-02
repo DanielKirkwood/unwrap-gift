@@ -648,3 +648,160 @@ func TestStoreDraws_UpdateDraw_NonexistentReturnsNotFound(t *testing.T) {
 		t.Errorf("UpdateDraw() (nonexistent) error = %v, want api.ErrDrawNotFound", updateErr)
 	}
 }
+
+// TestNotifyDraw_RetriesAndFlipsToNotified closes the gap codebase-review-
+// 2026-10-02.md's "Fix before you run the real draws" #2 (issue #20)
+// flagged: a draw stuck at 'assigned' after a transient SMS failure
+// previously had no recovery path. It reuses
+// TestRunDraw_NotificationFailure_DrawStaysAssigned's setup to get a draw
+// into that stuck state, then retries with a working sender.
+func TestNotifyDraw_RetriesAndFlipsToNotified(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	alice := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	bob := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	failingSender := &fakeSMSSender{failFor: map[string]string{alice.PhoneNumber: "invalid recipient"}}
+	s := storeDraws{
+		store: store,
+		sms: &smsclient.Client{
+			Enabled: true,
+			Sender:  failingSender,
+			From:    "Santa",
+			Logger:  slog.New(slog.DiscardHandler),
+		},
+	}
+
+	if _, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID); !errors.Is(runErr, api.ErrNotificationFailed) {
+		t.Fatalf("RunDraw() error = %v, want errors.Is(err, api.ErrNotificationFailed)", runErr)
+	}
+
+	workingSender := &fakeSMSSender{}
+	s.sms = &smsclient.Client{
+		Enabled: true,
+		Sender:  workingSender,
+		From:    "Santa",
+		Logger:  slog.New(slog.DiscardHandler),
+	}
+
+	result, assignments, notifyErr := s.NotifyDraw(t.Context(), drawer.ID, draw.ID)
+	if notifyErr != nil {
+		t.Fatalf("NotifyDraw() error = %v, want nil", notifyErr)
+	}
+	if result.Status != drawStatusNotified {
+		t.Errorf("NotifyDraw() draw.Status = %q, want %q", result.Status, drawStatusNotified)
+	}
+	if len(assignments) != 2 {
+		t.Errorf("NotifyDraw() len(assignments) = %d, want 2", len(assignments))
+	}
+	if len(workingSender.calls) != 2 {
+		t.Errorf("NotifyDraw() len(sms calls) = %d, want 2 (resent to both members)", len(workingSender.calls))
+	}
+
+	var sentToAlice, sentToBob bool
+	for _, call := range workingSender.calls {
+		switch call.To {
+		case alice.PhoneNumber:
+			sentToAlice = true
+		case bob.PhoneNumber:
+			sentToBob = true
+		}
+	}
+	if !sentToAlice {
+		t.Error("NotifyDraw() did not resend to Alice, who previously failed")
+	}
+	if !sentToBob {
+		t.Error("NotifyDraw() did not resend to Bob")
+	}
+}
+
+func TestNotifyDraw_DraftReturnsNotYetRun(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
+
+	_, _, notifyErr := s.NotifyDraw(t.Context(), drawer.ID, draw.ID)
+	if !errors.Is(notifyErr, api.ErrDrawNotYetRun) {
+		t.Errorf("NotifyDraw() (draft) error = %v, want api.ErrDrawNotYetRun", notifyErr)
+	}
+}
+
+func TestNotifyDraw_AlreadyNotifiedReturnsConflict(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer, err := store.Queries.CreateDrawer(t.Context(), sqlc.CreateDrawerParams{
+		Name:                      "Office Secret Santa",
+		OrganiserKratosIdentityID: "organiser-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	_ = createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	_ = createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	draw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	s := storeDraws{
+		store: store,
+		sms: &smsclient.Client{
+			Enabled: true,
+			Sender:  &fakeSMSSender{},
+			From:    "Santa",
+			Logger:  slog.New(slog.DiscardHandler),
+		},
+	}
+
+	if _, _, runErr := s.RunDraw(t.Context(), drawer.ID, draw.ID); runErr != nil {
+		t.Fatalf("RunDraw() error = %v, want nil", runErr)
+	}
+
+	_, _, notifyErr := s.NotifyDraw(t.Context(), drawer.ID, draw.ID)
+	if !errors.Is(notifyErr, api.ErrDrawAlreadyNotified) {
+		t.Errorf("NotifyDraw() (already notified) error = %v, want api.ErrDrawAlreadyNotified", notifyErr)
+	}
+}

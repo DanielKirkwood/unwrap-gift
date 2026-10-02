@@ -32,12 +32,22 @@ var ErrNoValidAssignment = errors.New(
 // fewer than two members.
 var ErrTooFewMembers = errors.New("api: drawer has fewer than two members")
 
-// ErrNotificationFailed is returned by DrawStore.RunDraw when assignment
-// succeeds and is persisted, but sending the notification SMS to one or
-// more members fails. The draw's status stays 'assigned' (not
-// 'notified') in this case — see internal/app's
-// storeDraws.finalizeNotifications.
+// ErrNotificationFailed is returned by DrawStore.RunDraw and
+// DrawStore.NotifyDraw when assignment succeeds and is persisted, but
+// sending the notification SMS to one or more members fails. The draw's
+// status stays 'assigned' (not 'notified') in this case — see
+// internal/app's storeDraws.finalizeNotifications.
 var ErrNotificationFailed = errors.New("api: failed to send notification sms to one or more members")
+
+// ErrDrawNotYetRun is returned by DrawStore.NotifyDraw when the draw is
+// still 'draft' — there is no assignment yet to notify members about, so
+// RunDraw (not NotifyDraw) is the right endpoint to call first.
+var ErrDrawNotYetRun = errors.New("api: draw has not been run yet")
+
+// ErrDrawAlreadyNotified is returned by DrawStore.NotifyDraw when the draw
+// is already 'notified' — every member was already successfully notified,
+// so there is nothing left to retry.
+var ErrDrawAlreadyNotified = errors.New("api: draw has already been notified")
 
 // Draw is api's own representation of a draw row, decoupled from
 // internal/db/sqlc.Draw.
@@ -73,6 +83,7 @@ type DrawStore interface {
 	ListAssignmentsByDraw(ctx context.Context, drawerID, drawID int64) ([]Assignment, error)
 	UpdateDraw(ctx context.Context, drawerID, id int64, exchangeDate time.Time, budgetAmount int64) (Draw, error)
 	RunDraw(ctx context.Context, drawerID, drawID int64) (Draw, []Assignment, error)
+	NotifyDraw(ctx context.Context, drawerID, drawID int64) (Draw, []Assignment, error)
 }
 
 // drawCreateRequest is the request body for POST
@@ -112,6 +123,7 @@ func MountDraws(r chi.Router, draws DrawStore, adapter Adapter) {
 			r.Put("/", adapter.Adapt(updateDraw(draws)))
 			r.Get("/assignments", adapter.Adapt(listAssignments(draws)))
 			r.Post("/run", adapter.Adapt(runDraw(draws)))
+			r.Post("/notify", adapter.Adapt(notifyDraw(draws)))
 		})
 	})
 }
@@ -234,6 +246,32 @@ func runDraw(draws DrawStore) HandlerFunc {
 		}
 
 		draw, assignments, err := draws.RunDraw(r.Context(), drawerID, id)
+		if err != nil {
+			return err
+		}
+
+		return WriteData(w, http.StatusOK, runDrawResponse{Draw: draw, Assignments: assignments})
+	}
+}
+
+// notifyDraw retries notification for a draw stuck at 'assigned' status
+// (e.g. after a transient SMS send failure left it there) -- RunDraw is a
+// one-shot compute-and-notify operation that can't be called again once a
+// draw has left 'draft', so this is the only way to resend after a partial
+// or total notification failure.
+func notifyDraw(draws DrawStore) HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		drawerID, err := drawerIDParam(r)
+		if err != nil {
+			return err
+		}
+
+		id, err := drawID(r)
+		if err != nil {
+			return err
+		}
+
+		draw, assignments, err := draws.NotifyDraw(r.Context(), drawerID, id)
 		if err != nil {
 			return err
 		}

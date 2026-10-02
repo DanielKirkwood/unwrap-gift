@@ -65,6 +65,11 @@ func (f *fakeDrawStore) RunDraw(_ context.Context, drawerID, drawID int64) (api.
 	return f.draw, f.assignments, f.err
 }
 
+func (f *fakeDrawStore) NotifyDraw(_ context.Context, drawerID, drawID int64) (api.Draw, []api.Assignment, error) {
+	f.lastDrawerID, f.lastID = drawerID, drawID
+	return f.draw, f.assignments, f.err
+}
+
 func testDrawAdapter() api.Adapter {
 	return api.Adapter{
 		Logger: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
@@ -76,6 +81,8 @@ func testDrawAdapter() api.Adapter {
 				Match:   api.ErrTooFewMembers,
 				Problem: api.Problem{Status: http.StatusUnprocessableEntity, Title: "Unprocessable Entity"},
 			},
+			{Match: api.ErrDrawNotYetRun, Problem: api.Problem{Status: http.StatusConflict, Title: "Conflict"}},
+			{Match: api.ErrDrawAlreadyNotified, Problem: api.Problem{Status: http.StatusConflict, Title: "Conflict"}},
 		},
 	}
 }
@@ -184,6 +191,77 @@ func TestMountDraws_UpdateAlreadyRunReturns409(t *testing.T) {
 		http.MethodPut, "/drawers/1/draws/1",
 		bytes.NewBufferString(`{"exchange_date":"2026-12-26T00:00:00Z","budget_amount":2500}`),
 	)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+// TestMountDraws_NotifySuccess asserts the retry-notify response envelope
+// shape matches run-draw's (draw + assignments).
+func TestMountDraws_NotifySuccess(t *testing.T) {
+	t.Parallel()
+
+	draw := api.Draw{ID: 1, DrawerID: 1, Status: "notified"}
+	assignments := []api.Assignment{
+		{ID: 1, DrawID: 1, GifterMemberID: 10, GifteeMemberID: 20},
+		{ID: 2, DrawID: 1, GifterMemberID: 20, GifteeMemberID: 10},
+	}
+	fake := &fakeDrawStore{draw: draw, assignments: assignments}
+	router := mountTestDraws(fake)
+
+	req := httptest.NewRequest(http.MethodPost, "/drawers/1/draws/1/notify", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			Draw        api.Draw         `json:"draw"`
+			Assignments []api.Assignment `json:"assignments"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.Draw.Status != "notified" {
+		t.Errorf("draw.status = %q, want notified", body.Data.Draw.Status)
+	}
+	if len(body.Data.Assignments) != 2 {
+		t.Errorf("len(assignments) = %d, want 2", len(body.Data.Assignments))
+	}
+}
+
+func TestMountDraws_NotifyNotYetRunReturns409(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDrawStore{err: api.ErrDrawNotYetRun}
+	router := mountTestDraws(fake)
+
+	req := httptest.NewRequest(http.MethodPost, "/drawers/1/draws/1/notify", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMountDraws_NotifyAlreadyNotifiedReturns409(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDrawStore{err: api.ErrDrawAlreadyNotified}
+	router := mountTestDraws(fake)
+
+	req := httptest.NewRequest(http.MethodPost, "/drawers/1/draws/1/notify", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

@@ -334,7 +334,23 @@ func wireDraws(deps *api.RouterDeps, a *App) {
 					Title:  "Bad Gateway",
 					Detail: "draw was assigned but one or more notification SMS messages failed to send; " +
 						"assignments are saved and visible via GET .../assignments, but the draw's status " +
-						"remains 'assigned' until notifications succeed",
+						"remains 'assigned' until notifications succeed -- retry via POST .../notify",
+				},
+			},
+			{
+				Match: api.ErrDrawNotYetRun,
+				Problem: api.Problem{
+					Status: http.StatusConflict,
+					Title:  titleConflict,
+					Detail: "draw has not been run yet -- call POST .../run first",
+				},
+			},
+			{
+				Match: api.ErrDrawAlreadyNotified,
+				Problem: api.Problem{
+					Status: http.StatusConflict,
+					Title:  titleConflict,
+					Detail: "draw has already been notified -- nothing left to retry",
 				},
 			},
 		},
