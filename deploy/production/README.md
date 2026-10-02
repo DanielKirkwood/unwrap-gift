@@ -90,6 +90,39 @@ docker compose --env-file .env.production exec -T postgres-keto \
 Copy the resulting files off the VPS (rsync/rclone to object storage) — a backup that lives on the
 same disk as the database it backs up isn't a backup.
 
+## SQLite backups (unwrap-gift's own data)
+
+The two Postgres backups above cover Kratos/Keto's data (sessions, identities, relation tuples) —
+**not** unwrap-gift's own data (wishlists, member phone numbers, draw/assignment history), which
+lives in the `unwrap-gift-data` volume as a SQLite file. This is the actual product data the whole
+app exists to protect, and until now had no backup story at all.
+
+```sh
+./backup-sqlite.sh                 # writes to ./backups/unwrap-gift-<date>.db
+./backup-sqlite.sh /some/other/dir # or a custom directory
+```
+
+Run daily via cron, same as the Postgres backups, and copy the resulting files off the VPS the same
+way. See the script's own comments for why it uses SQLite's `.backup` command via a disposable
+Alpine container, rather than a raw file copy of the volume (the database is WAL-mode — see
+`internal/db/store.go`'s `dsn()` — so a plain `cp`/`tar` risks capturing an inconsistent snapshot
+mid-write).
+
+**Restoring**: stop the app first, so nothing writes to the database while you overwrite it, and
+remove any existing `-wal`/`-shm` sidecar files alongside the restored file — leaving them in place
+would replay pre-restore changes back on top of it the next time the file is opened, silently
+undoing the restore.
+
+```sh
+docker compose --env-file .env.production stop unwrap-gift
+docker run --rm \
+  -v unwrap-gift-production_unwrap-gift-data:/data \
+  -v "$(pwd)/backups:/backup" \
+  alpine:3.21 \
+  sh -c "rm -f /data/unwrap-gift.db-wal /data/unwrap-gift.db-shm && cp /backup/unwrap-gift-<date>.db /data/unwrap-gift.db"
+docker compose --env-file .env.production start unwrap-gift
+```
+
 ## What's deliberately not here
 
 - **No auto-deploy on merge.** Chosen deliberately while this topology is new — see the Phase 8
