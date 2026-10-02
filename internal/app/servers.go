@@ -166,6 +166,7 @@ func buildWebDeps(a *App, enabled bool, kratosCfg config.KratosConfig) (web.Rout
 	deps.Templates = templates
 	deps.Auth = web.AuthenticationMiddleware(a.Kratos)
 	deps.LoginFlows = a.Kratos
+	deps.LogoutFlows = a.Kratos
 	deps.KratosBrowserURL = kratosCfg.BrowserURL
 	deps.WishlistItems = webStoreWishlistItems{store: a.Store}
 
