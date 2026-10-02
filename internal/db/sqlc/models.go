@@ -10,11 +10,13 @@ import (
 )
 
 type Assignment struct {
-	ID             int64     `json:"id"`
-	DrawID         int64     `json:"draw_id"`
-	GifterMemberID int64     `json:"gifter_member_id"`
-	GifteeMemberID int64     `json:"giftee_member_id"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                int64         `json:"id"`
+	DrawID            int64         `json:"draw_id"`
+	GifterMemberID    sql.NullInt64 `json:"gifter_member_id"`
+	GifteeMemberID    sql.NullInt64 `json:"giftee_member_id"`
+	GifterPhoneNumber string        `json:"gifter_phone_number"`
+	GifteePhoneNumber string        `json:"giftee_phone_number"`
+	CreatedAt         time.Time     `json:"created_at"`
 }
 
 type Draw struct {

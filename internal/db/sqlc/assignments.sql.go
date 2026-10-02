@@ -7,33 +7,46 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createAssignment = `-- name: CreateAssignment :one
-INSERT INTO assignments (draw_id, gifter_member_id, giftee_member_id) VALUES (?, ?, ?) RETURNING id, draw_id, gifter_member_id, giftee_member_id, created_at
+INSERT INTO assignments (
+    draw_id, gifter_member_id, giftee_member_id, gifter_phone_number, giftee_phone_number
+) VALUES (?, ?, ?, ?, ?) RETURNING id, draw_id, gifter_member_id, giftee_member_id, gifter_phone_number, giftee_phone_number, created_at
 `
 
 type CreateAssignmentParams struct {
-	DrawID         int64 `json:"draw_id"`
-	GifterMemberID int64 `json:"gifter_member_id"`
-	GifteeMemberID int64 `json:"giftee_member_id"`
+	DrawID            int64         `json:"draw_id"`
+	GifterMemberID    sql.NullInt64 `json:"gifter_member_id"`
+	GifteeMemberID    sql.NullInt64 `json:"giftee_member_id"`
+	GifterPhoneNumber string        `json:"gifter_phone_number"`
+	GifteePhoneNumber string        `json:"giftee_phone_number"`
 }
 
 func (q *Queries) CreateAssignment(ctx context.Context, arg CreateAssignmentParams) (Assignment, error) {
-	row := q.db.QueryRowContext(ctx, createAssignment, arg.DrawID, arg.GifterMemberID, arg.GifteeMemberID)
+	row := q.db.QueryRowContext(ctx, createAssignment,
+		arg.DrawID,
+		arg.GifterMemberID,
+		arg.GifteeMemberID,
+		arg.GifterPhoneNumber,
+		arg.GifteePhoneNumber,
+	)
 	var i Assignment
 	err := row.Scan(
 		&i.ID,
 		&i.DrawID,
 		&i.GifterMemberID,
 		&i.GifteeMemberID,
+		&i.GifterPhoneNumber,
+		&i.GifteePhoneNumber,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listAssignmentsByDraw = `-- name: ListAssignmentsByDraw :many
-SELECT id, draw_id, gifter_member_id, giftee_member_id, created_at FROM assignments WHERE draw_id = ? ORDER BY id
+SELECT id, draw_id, gifter_member_id, giftee_member_id, gifter_phone_number, giftee_phone_number, created_at FROM assignments WHERE draw_id = ? ORDER BY id
 `
 
 func (q *Queries) ListAssignmentsByDraw(ctx context.Context, drawID int64) ([]Assignment, error) {
@@ -50,6 +63,8 @@ func (q *Queries) ListAssignmentsByDraw(ctx context.Context, drawID int64) ([]As
 			&i.DrawID,
 			&i.GifterMemberID,
 			&i.GifteeMemberID,
+			&i.GifterPhoneNumber,
+			&i.GifteePhoneNumber,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

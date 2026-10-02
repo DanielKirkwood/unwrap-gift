@@ -192,7 +192,7 @@ func (s storeDraws) RunDraw(ctx context.Context, drawerID, drawID int64) (api.Dr
 
 	window := drawer.HistoryWindowDraws
 	for {
-		history, historyErr := s.buildHistory(ctx, drawerID, drawID, window)
+		history, historyErr := s.buildHistory(ctx, drawerID, drawID, window, phoneToMemberID)
 		if historyErr != nil {
 			return api.Draw{}, nil, historyErr
 		}
@@ -200,7 +200,7 @@ func (s storeDraws) RunDraw(ctx context.Context, drawerID, drawID int64) (api.Dr
 		result, assignErr := assign.Assign(memberIDs, exclusions, history)
 		switch {
 		case assignErr == nil:
-			persistedDraw, assignments, persistErr := s.persistAssignment(ctx, draw, result)
+			persistedDraw, assignments, persistErr := s.persistAssignment(ctx, draw, result, memberByID)
 			if persistErr != nil {
 				return api.Draw{}, nil, persistErr
 			}
@@ -310,7 +310,20 @@ func (s storeDraws) buildExclusions(
 // (excluding drawID itself) and converts their assignments into
 // assign.HistoryPair. A window of zero skips the lookup entirely, ignoring
 // history altogether.
-func (s storeDraws) buildHistory(ctx context.Context, drawerID, drawID, window int64) ([]assign.HistoryPair, error) {
+//
+// History is resolved by phone number (via phoneToMemberID), not the
+// assignment row's stored gifter_member_id/giftee_member_id, so a
+// historical pairing still counts after the member row it originally
+// pointed to was deleted and recreated under a new id (e.g. someone left a
+// drawer and rejoined) -- see migration 00005_assignment_phone_snapshot.sql
+// / issue #23. A side whose phone number isn't a current member of this
+// drawer is skipped, the same way buildExclusions skips an exclusion pair
+// where one side isn't a current member.
+func (s storeDraws) buildHistory(
+	ctx context.Context,
+	drawerID, drawID, window int64,
+	phoneToMemberID map[string]assign.MemberID,
+) ([]assign.HistoryPair, error) {
 	if window == 0 {
 		return nil, nil
 	}
@@ -332,10 +345,13 @@ func (s storeDraws) buildHistory(ctx context.Context, drawerID, drawID, window i
 		}
 
 		for _, a := range assignments {
-			history = append(history, assign.HistoryPair{
-				Gifter: assign.MemberID(a.GifterMemberID),
-				Giftee: assign.MemberID(a.GifteeMemberID),
-			})
+			gifterID, gifterOK := phoneToMemberID[a.GifterPhoneNumber]
+			gifteeID, gifteeOK := phoneToMemberID[a.GifteePhoneNumber]
+			if !gifterOK || !gifteeOK {
+				continue
+			}
+
+			history = append(history, assign.HistoryPair{Gifter: gifterID, Giftee: gifteeID})
 		}
 	}
 
@@ -357,6 +373,7 @@ func (s storeDraws) persistAssignment(
 	ctx context.Context,
 	draw sqlc.Draw,
 	result map[assign.MemberID]assign.MemberID,
+	memberByID map[int64]sqlc.Member,
 ) (api.Draw, []api.Assignment, error) {
 	var updated sqlc.Draw
 	assignments := make([]api.Assignment, 0, len(result))
@@ -372,9 +389,11 @@ func (s storeDraws) persistAssignment(
 
 		for gifter, giftee := range result {
 			row, createErr := q.CreateAssignment(ctx, sqlc.CreateAssignmentParams{
-				DrawID:         draw.ID,
-				GifterMemberID: int64(gifter),
-				GifteeMemberID: int64(giftee),
+				DrawID:            draw.ID,
+				GifterMemberID:    sql.NullInt64{Int64: int64(gifter), Valid: true},
+				GifteeMemberID:    sql.NullInt64{Int64: int64(giftee), Valid: true},
+				GifterPhoneNumber: memberByID[int64(gifter)].PhoneNumber,
+				GifteePhoneNumber: memberByID[int64(giftee)].PhoneNumber,
 			})
 			if createErr != nil {
 				return fmt.Errorf("app: create assignment: %w", createErr)
@@ -551,11 +570,13 @@ func toAPIDraw(d sqlc.Draw) api.Draw {
 
 func toAPIAssignment(a sqlc.Assignment) api.Assignment {
 	return api.Assignment{
-		ID:             a.ID,
-		DrawID:         a.DrawID,
-		GifterMemberID: a.GifterMemberID,
-		GifteeMemberID: a.GifteeMemberID,
-		CreatedAt:      a.CreatedAt,
+		ID:                a.ID,
+		DrawID:            a.DrawID,
+		GifterMemberID:    a.GifterMemberID.Int64, // 0 if a.GifterMemberID.Valid is false (member since deleted)
+		GifteeMemberID:    a.GifteeMemberID.Int64,
+		GifterPhoneNumber: a.GifterPhoneNumber,
+		GifteePhoneNumber: a.GifteePhoneNumber,
+		CreatedAt:         a.CreatedAt,
 	}
 }
 

@@ -62,13 +62,19 @@ type Draw struct {
 }
 
 // Assignment is api's own representation of an assignment row, decoupled
-// from internal/db/sqlc.Assignment.
+// from internal/db/sqlc.Assignment. GifterMemberID/GifteeMemberID are 0 when
+// that member row has since been deleted -- GifterPhoneNumber/
+// GifteePhoneNumber are the durable identifier in that case (a snapshot
+// taken at assignment-creation time, surviving the member row's deletion;
+// see migration 00005_assignment_phone_snapshot.sql / issue #23).
 type Assignment struct {
-	ID             int64     `json:"id"`
-	DrawID         int64     `json:"draw_id"`
-	GifterMemberID int64     `json:"gifter_member_id"`
-	GifteeMemberID int64     `json:"giftee_member_id"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                int64     `json:"id"`
+	DrawID            int64     `json:"draw_id"`
+	GifterMemberID    int64     `json:"gifter_member_id"`
+	GifteeMemberID    int64     `json:"giftee_member_id"`
+	GifterPhoneNumber string    `json:"gifter_phone_number"`
+	GifteePhoneNumber string    `json:"giftee_phone_number"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // DrawStore is the subset of persistence the draw handlers need.
