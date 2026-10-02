@@ -119,7 +119,12 @@ func (s *Store) WithTx(ctx context.Context, fn func(*sqlc.Queries) error) (err e
 
 // dsn builds a modernc.org/sqlite connection string with WAL mode and a
 // busy timeout, so concurrent readers don't block on each other and writers
-// wait rather than immediately failing under contention.
+// wait rather than immediately failing under contention. _loc=UTC fixes the
+// location modernc.org/sqlite assumes when parsing a stored timestamp back
+// into a [time.Time] if the stored text has no explicit zone offset —
+// paired with callers normalizing any [time.Time] they persist to UTC
+// first (see storeDraws.CreateDraw), so every stored timestamp is
+// unambiguously UTC on both the write and read side.
 func dsn(path string) string {
-	return fmt.Sprintf("file:%s?_journal=WAL&_timeout=%d&_foreign_keys=on", path, busyTimeoutMS)
+	return fmt.Sprintf("file:%s?_journal=WAL&_timeout=%d&_foreign_keys=on&_loc=UTC", path, busyTimeoutMS)
 }

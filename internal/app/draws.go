@@ -45,7 +45,7 @@ func (s storeDraws) CreateDraw(
 ) (api.Draw, error) {
 	draw, err := s.store.Queries.CreateDraw(ctx, sqlc.CreateDrawParams{
 		DrawerID:     drawerID,
-		ExchangeDate: exchangeDate,
+		ExchangeDate: normalizeExchangeDate(exchangeDate),
 		BudgetAmount: budgetAmount,
 	})
 	if err != nil {
@@ -53,6 +53,20 @@ func (s storeDraws) CreateDraw(
 	}
 
 	return toAPIDraw(draw), nil
+}
+
+// normalizeExchangeDate converts t to UTC and truncates it to midnight,
+// since an exchange_date only ever carries day-level meaning (see the PRD's
+// user flow) — this guarantees every stored value shares the exact same
+// zone offset and a zero time-of-day/fractional-second component, so the
+// DB's TEXT-column ORDER BY exchange_date DESC (which backs the history-
+// window exclusion logic in buildHistory) sorts identically to true
+// chronological order, regardless of what offset the client originally
+// sent. Without this, two exchange_date values submitted with different
+// client offsets aren't guaranteed to compare correctly as raw TEXT.
+func normalizeExchangeDate(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func (s storeDraws) GetDraw(ctx context.Context, drawerID, id int64) (api.Draw, error) {

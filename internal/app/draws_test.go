@@ -512,3 +512,65 @@ func TestRunDraw_NotificationFailure_DrawStaysAssigned(t *testing.T) {
 		t.Errorf("len(assignments) = %d, want 2 (persisted despite notify failure)", len(assignments))
 	}
 }
+
+// TestStoreDraws_CreateDrawNormalizesExchangeDateForOrdering exercises the
+// exact scenario codebase-review-2026-10-02.md's "Correctness bugs" #2
+// (issue #26) describes: two draws submitted with different client UTC
+// offsets, chosen so the later UTC instant has an earlier *local* calendar
+// day than the earlier UTC instant. Without normalizing to UTC first, the
+// DB's raw-TEXT "ORDER BY exchange_date DESC" would return them in the
+// wrong order, since each stored string would embed its own offset.
+func TestStoreDraws_CreateDrawNormalizesExchangeDateForOrdering(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawers := storeDrawers{store: store}
+	draws := storeDraws{store: store, sms: newDisabledSMSClient(t)}
+
+	drawer, err := drawers.CreateDrawer(t.Context(), "Office Secret Santa", "organiser-1")
+	if err != nil {
+		t.Fatalf("CreateDrawer() error = %v, want nil", err)
+	}
+
+	// later UTC instant (2026-12-25 04:00 UTC), but expressed in a client
+	// offset where the local calendar day is still the 24th.
+	later, err := time.Parse(time.RFC3339, "2026-12-24T23:00:00-05:00")
+	if err != nil {
+		t.Fatalf("time.Parse(later) error = %v, want nil", err)
+	}
+
+	// earlier UTC instant (2026-12-24 16:00 UTC), but expressed in a client
+	// offset where the local calendar day is already the 25th.
+	earlier, err := time.Parse(time.RFC3339, "2026-12-25T01:00:00+09:00")
+	if err != nil {
+		t.Fatalf("time.Parse(earlier) error = %v, want nil", err)
+	}
+
+	if _, createEarlierErr := draws.CreateDraw(t.Context(), drawer.ID, earlier, 2000); createEarlierErr != nil {
+		t.Fatalf("CreateDraw(earlier) error = %v, want nil", createEarlierErr)
+	}
+	if _, createLaterErr := draws.CreateDraw(t.Context(), drawer.ID, later, 2000); createLaterErr != nil {
+		t.Fatalf("CreateDraw(later) error = %v, want nil", createLaterErr)
+	}
+
+	list, err := draws.ListDrawsByDrawer(t.Context(), drawer.ID)
+	if err != nil {
+		t.Fatalf("ListDrawsByDrawer() error = %v, want nil", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len(list) = %d, want 2", len(list))
+	}
+
+	if !list[0].ExchangeDate.Equal(normalizeExchangeDate(later)) {
+		t.Errorf(
+			"ListDrawsByDrawer()[0].ExchangeDate = %v, want %v (the later UTC instant, sorted first)",
+			list[0].ExchangeDate, normalizeExchangeDate(later),
+		)
+	}
+	if !list[1].ExchangeDate.Equal(normalizeExchangeDate(earlier)) {
+		t.Errorf(
+			"ListDrawsByDrawer()[1].ExchangeDate = %v, want %v (the earlier UTC instant, sorted second)",
+			list[1].ExchangeDate, normalizeExchangeDate(earlier),
+		)
+	}
+}
