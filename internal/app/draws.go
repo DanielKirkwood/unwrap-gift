@@ -216,6 +216,58 @@ func (s storeDraws) RunDraw(ctx context.Context, drawerID, drawID int64) (api.Dr
 	}
 }
 
+// NotifyDraw resends notification SMS for a draw stuck at 'assigned'
+// status -- RunDraw computed and persisted a valid assignment, but a
+// transient SMS failure left some or all members unnotified, and RunDraw
+// itself can't be called again (the draw is no longer 'draft'). It resends
+// every assignment's notification, not just previously-failed ones, since
+// per-member delivery status isn't tracked; resending to an
+// already-successfully-notified member is a harmless extra SMS, which is
+// preferable to risking someone being missed. Only if every send now
+// succeeds does it flip to 'notified', the same success condition
+// finalizeNotifications already enforces for RunDraw.
+func (s storeDraws) NotifyDraw(ctx context.Context, drawerID, drawID int64) (api.Draw, []api.Assignment, error) {
+	draw, err := s.store.Queries.GetDraw(ctx, drawID)
+	if err != nil {
+		return api.Draw{}, nil, mapDrawErr(err)
+	}
+	if draw.DrawerID != drawerID {
+		return api.Draw{}, nil, api.ErrDrawNotFound
+	}
+
+	switch draw.Status {
+	case drawStatusDraft:
+		return api.Draw{}, nil, api.ErrDrawNotYetRun
+	case drawStatusNotified:
+		return api.Draw{}, nil, api.ErrDrawAlreadyNotified
+	}
+
+	drawer, err := s.store.Queries.GetDrawer(ctx, drawerID)
+	if err != nil {
+		return api.Draw{}, nil, mapDrawerErr(err)
+	}
+
+	members, err := s.store.Queries.ListMembersByDrawer(ctx, drawerID)
+	if err != nil {
+		return api.Draw{}, nil, fmt.Errorf("app: list members for notify-draw: %w", err)
+	}
+	memberByID := make(map[int64]sqlc.Member, len(members))
+	for _, m := range members {
+		memberByID[m.ID] = m
+	}
+
+	assignmentRows, err := s.store.Queries.ListAssignmentsByDraw(ctx, drawID)
+	if err != nil {
+		return api.Draw{}, nil, fmt.Errorf("app: list assignments for notify-draw: %w", err)
+	}
+	assignments := make([]api.Assignment, len(assignmentRows))
+	for i, row := range assignmentRows {
+		assignments[i] = toAPIAssignment(row)
+	}
+
+	return s.finalizeNotifications(ctx, drawer.Name, toAPIDraw(draw), assignments, memberByID)
+}
+
 // buildExclusions resolves the drawer's members' global exclusion pairs
 // into assign.ExclusionPair, only when both sides resolve to a member of
 // this drawer — people excluded who aren't in this drawer are correctly
@@ -381,14 +433,14 @@ func (s storeDraws) notifyMembers(
 	return errors.Join(errs...)
 }
 
-// finalizeNotifications sends every notification SMS for a
-// just-persisted draw and, only if every send succeeded, flips its
-// status to 'notified'. A partial or total send failure leaves the draw
-// at 'assigned' — the assignments it already computed stay valid and
-// visible via ListAssignmentsByDraw, but RunDraw cannot be called again
-// for this draw (it's no longer 'draft') and there is no retry-notify
-// endpoint in v1. This is a known, surfaced gap (see this plan's Risks),
-// not a silently swallowed one.
+// finalizeNotifications sends every notification SMS for a draw (freshly
+// persisted by RunDraw, or already 'assigned' and being retried by
+// NotifyDraw) and, only if every send succeeded, flips its status to
+// 'notified'. A partial or total send failure leaves the draw at
+// 'assigned' — the assignments it already computed stay valid and visible
+// via ListAssignmentsByDraw, RunDraw cannot be called again for this draw
+// (it's no longer 'draft'), but NotifyDraw can be retried as many times as
+// needed.
 func (s storeDraws) finalizeNotifications(
 	ctx context.Context,
 	drawerName string,
