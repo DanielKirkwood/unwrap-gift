@@ -38,5 +38,9 @@ dev.db
 dev.db-wal
 dev.db-shm
 
+# Default output directory for deploy/production/backup-sqlite.sh -- real
+# production data (wishlists, phone numbers) must never be committed.
+deploy/production/backups/
+
 # Local-only planning docs
 /docs/
