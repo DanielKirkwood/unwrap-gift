@@ -10,9 +10,10 @@ tasks:
     default:
         desc: Build and run the app
         aliases: [run]
+        dotenv: [".env"]
         cmds:
             - task: build
-            - ./{{.EXE}} {{.CLI_ARGS}}
+            - ./{{.EXE}} {{.CLI_ARGS | default "start"}}
 
     build:
         desc: Builds the app
@@ -44,6 +45,7 @@ tasks:
     db:migrate:
         desc: Apply all pending database migrations
         deps: [build]
+        dotenv: [".env"]
         env:
             DATABASE_PATH: "{{.DEV_DB_PATH}}"
         cmds:
@@ -52,6 +54,7 @@ tasks:
     db:rollback:
         desc: Roll back the most recent database migration
         deps: [build]
+        dotenv: [".env"]
         env:
             DATABASE_PATH: "{{.DEV_DB_PATH}}"
         cmds:
@@ -66,6 +69,7 @@ tasks:
     db:status:
         desc: Show which migrations are applied vs pending
         deps: [build]
+        dotenv: [".env"]
         env:
             DATABASE_PATH: "{{.DEV_DB_PATH}}"
         cmds:
@@ -74,6 +78,7 @@ tasks:
     db:seed:
         desc: Seed the database with development data
         deps: [build]
+        dotenv: [".env"]
         env:
             DATABASE_PATH: "{{.DEV_DB_PATH}}"
         cmds:

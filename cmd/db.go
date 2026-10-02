@@ -128,11 +128,16 @@ Keto is enabled, or the command errors.`,
 			// domain table in Phase 7 — nothing to seed there yet. Keto
 			// relation-tuple seeding lands in Phase 6, so it's the only
 			// seed data today.
-			if err := seedKeto(cmd); err != nil {
+			seeded, err := seedKeto(cmd)
+			if err != nil {
 				return err
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "db seed: seeded Keto relation tuples")
+			if seeded {
+				fmt.Fprintln(cmd.OutOrStdout(), "db seed: seeded Keto relation tuples")
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "db seed: keto disabled, nothing to seed")
+			}
 
 			return nil
 		},
@@ -142,26 +147,28 @@ Keto is enabled, or the command errors.`,
 // seedKeto grants the Role:admin relation tuple to
 // EnvVars.KetoSeedAdminIdentityID and makes Identities:admin's manage
 // permission traverse that role, matching deploy/keto/identities.ts's OPL.
-// It's a no-op when the keto feature is disabled. The actual seeding is
-// tasks.SeedKetoAdmin, shared with `task exec reseed-keto` so the two entry
-// points can't drift out of sync.
-func seedKeto(cmd *cobra.Command) error {
+// It's a no-op when the keto feature is disabled, reported via the seeded
+// return value so the caller can distinguish "nothing to do" from "seeded"
+// instead of printing a success message unconditionally. The actual seeding
+// is tasks.SeedKetoAdmin, shared with `task exec reseed-keto` so the two
+// entry points can't drift out of sync.
+func seedKeto(cmd *cobra.Command) (bool, error) {
 	a, ok := appFromContext(cmd.Context())
 	if !ok {
-		return errAppNotBootstrapped
+		return false, errAppNotBootstrapped
 	}
 	if a.Keto == nil {
-		return nil
+		return false, nil
 	}
 	if a.Env.KetoSeedAdminIdentityID == "" {
-		return errKetoSeedAdminIdentityIDRequired
+		return false, errKetoSeedAdminIdentityIDRequired
 	}
 
 	if err := tasks.SeedKetoAdmin(cmd.Context(), a.Keto, a.Env.KetoSeedAdminIdentityID); err != nil {
-		return fmt.Errorf("cmd: seed keto: %w", err)
+		return false, fmt.Errorf("cmd: seed keto: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // storeFromContext returns the bootstrapped app's *db.Store, erroring if the
