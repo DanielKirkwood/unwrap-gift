@@ -122,15 +122,15 @@ func TestRunDraw_RelaxesHistoryWindowByOne(t *testing.T) {
 
 	// older past draw: D2 (A→C, C→B, B→A).
 	older := createCompletedDraw(t, store, drawer.ID, time.Date(2024, time.December, 25, 0, 0, 0, 0, time.UTC))
-	createTestAssignment(t, store, older.ID, a.ID, c.ID)
-	createTestAssignment(t, store, older.ID, c.ID, b.ID)
-	createTestAssignment(t, store, older.ID, b.ID, a.ID)
+	createTestAssignment(t, store, older.ID, a, c)
+	createTestAssignment(t, store, older.ID, c, b)
+	createTestAssignment(t, store, older.ID, b, a)
 
 	// most recent past draw: D1 (A→B, B→C, C→A).
 	mostRecent := createCompletedDraw(t, store, drawer.ID, time.Date(2025, time.December, 25, 0, 0, 0, 0, time.UTC))
-	createTestAssignment(t, store, mostRecent.ID, a.ID, b.ID)
-	createTestAssignment(t, store, mostRecent.ID, b.ID, c.ID)
-	createTestAssignment(t, store, mostRecent.ID, c.ID, a.ID)
+	createTestAssignment(t, store, mostRecent.ID, a, b)
+	createTestAssignment(t, store, mostRecent.ID, b, c)
+	createTestAssignment(t, store, mostRecent.ID, c, a)
 
 	current, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
 		DrawerID:     drawer.ID,
@@ -250,6 +250,123 @@ func TestRunDraw_AlreadyRun(t *testing.T) {
 	}
 }
 
+// TestDeleteMember_PreservesAssignmentHistory proves issue #23's core fix:
+// deleting a member used to cascade-delete every assignment row involving
+// them. Now the row survives -- gifter_member_id/giftee_member_id (the
+// deleted side) becomes NULL via ON DELETE SET NULL, but the phone-number
+// snapshot stays intact.
+func TestDeleteMember_PreservesAssignmentHistory(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer := createTestDrawer(t, store)
+
+	alice := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	bob := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	draw := createCompletedDraw(t, store, drawer.ID, time.Date(2025, time.December, 25, 0, 0, 0, 0, time.UTC))
+	createTestAssignment(t, store, draw.ID, alice, bob)
+	createTestAssignment(t, store, draw.ID, bob, alice)
+
+	members := storeMembers{store: store}
+	if err := members.DeleteMember(t.Context(), drawer.ID, bob.ID); err != nil {
+		t.Fatalf("DeleteMember() error = %v, want nil", err)
+	}
+
+	assignments, err := store.Queries.ListAssignmentsByDraw(t.Context(), draw.ID)
+	if err != nil {
+		t.Fatalf("ListAssignmentsByDraw() error = %v, want nil", err)
+	}
+	if len(assignments) != 2 {
+		t.Fatalf("len(assignments) = %d, want 2 (rows preserved, not cascade-deleted)", len(assignments))
+	}
+
+	for _, a := range assignments {
+		if a.GifterPhoneNumber != alice.PhoneNumber && a.GifterPhoneNumber != bob.PhoneNumber {
+			t.Errorf("assignment %d gifter_phone_number = %q, want Alice or Bob's", a.ID, a.GifterPhoneNumber)
+		}
+		if a.GifteePhoneNumber != alice.PhoneNumber && a.GifteePhoneNumber != bob.PhoneNumber {
+			t.Errorf("assignment %d giftee_phone_number = %q, want Alice or Bob's", a.ID, a.GifteePhoneNumber)
+		}
+		// Whichever row referenced Bob (now deleted) should have that side
+		// nulled out, not the row itself gone.
+		if a.GifterPhoneNumber == bob.PhoneNumber && a.GifterMemberID.Valid {
+			t.Errorf("assignment %d gifter_member_id still valid after Bob's deletion, want NULL", a.ID)
+		}
+		if a.GifteePhoneNumber == bob.PhoneNumber && a.GifteeMemberID.Valid {
+			t.Errorf("assignment %d giftee_member_id still valid after Bob's deletion, want NULL", a.ID)
+		}
+	}
+}
+
+// TestBuildHistory_ResolvesByPhoneNumberAcrossMemberRecreate is the direct
+// proof the schema change alone wasn't enough for: a member who left and
+// rejoined a drawer gets a brand new member_id, so history resolved by the
+// stored member_id would never match them again. buildHistory must resolve
+// by phone number instead for a rejoined member's old pairings to still
+// count as history.
+func TestBuildHistory_ResolvesByPhoneNumberAcrossMemberRecreate(t *testing.T) {
+	t.Parallel()
+
+	store := newAppTestStore(t)
+	drawer := createTestDrawer(t, store)
+
+	alice := createTestMember(t, store, drawer.ID, "Alice", "+447700900000")
+	bob := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+
+	pastDraw := createCompletedDraw(t, store, drawer.ID, time.Date(2025, time.December, 25, 0, 0, 0, 0, time.UTC))
+	createTestAssignment(t, store, pastDraw.ID, alice, bob)
+	createTestAssignment(t, store, pastDraw.ID, bob, alice)
+
+	members := storeMembers{store: store}
+	if err := members.DeleteMember(t.Context(), drawer.ID, bob.ID); err != nil {
+		t.Fatalf("DeleteMember() error = %v, want nil", err)
+	}
+
+	// Bob rejoins: a new member row, a new (different) member_id, same
+	// phone number.
+	newBob := createTestMember(t, store, drawer.ID, "Bob", "+447700900001")
+	if newBob.ID == bob.ID {
+		t.Fatalf("newBob.ID = %d, want different from the deleted member's id %d", newBob.ID, bob.ID)
+	}
+
+	currentDraw, err := store.Queries.CreateDraw(t.Context(), sqlc.CreateDrawParams{
+		DrawerID:     drawer.ID,
+		ExchangeDate: time.Date(2026, time.December, 25, 0, 0, 0, 0, time.UTC),
+		BudgetAmount: 2000,
+	})
+	if err != nil {
+		t.Fatalf("CreateDraw() error = %v, want nil", err)
+	}
+
+	phoneToMemberID := map[string]assign.MemberID{
+		alice.PhoneNumber:  assign.MemberID(alice.ID),
+		newBob.PhoneNumber: assign.MemberID(newBob.ID),
+	}
+
+	s := storeDraws{store: store, sms: newDisabledSMSClient(t)}
+	history, historyErr := s.buildHistory(t.Context(), drawer.ID, currentDraw.ID, 1, phoneToMemberID)
+	if historyErr != nil {
+		t.Fatalf("buildHistory() error = %v, want nil", historyErr)
+	}
+
+	want := map[assign.MemberID]assign.MemberID{
+		assign.MemberID(alice.ID):  assign.MemberID(newBob.ID),
+		assign.MemberID(newBob.ID): assign.MemberID(alice.ID),
+	}
+	if len(history) != len(want) {
+		t.Fatalf("len(history) = %d, want %d", len(history), len(want))
+	}
+	for _, pair := range history {
+		if want[pair.Gifter] != pair.Giftee {
+			t.Errorf(
+				"history pair gifter %d -> giftee %d, want giftee %d (resolved via rejoined Bob's new member_id)",
+				pair.Gifter, pair.Giftee, want[pair.Gifter],
+			)
+		}
+	}
+}
+
 // TestPersistAssignment_RaceAgainstConcurrentRun simulates the race two
 // concurrent RunDraw calls on the same draft draw could hit: both pass
 // RunDraw's own draft-status check before either commits, then both reach
@@ -288,12 +405,13 @@ func TestPersistAssignment_RaceAgainstConcurrentRun(t *testing.T) {
 		assign.MemberID(a.ID): assign.MemberID(b.ID),
 		assign.MemberID(b.ID): assign.MemberID(a.ID),
 	}
+	memberByID := map[int64]sqlc.Member{a.ID: a, b.ID: b}
 
-	if _, _, firstErr := s.persistAssignment(t.Context(), draw, assignResult); firstErr != nil {
+	if _, _, firstErr := s.persistAssignment(t.Context(), draw, assignResult, memberByID); firstErr != nil {
 		t.Fatalf("first persistAssignment() error = %v, want nil", firstErr)
 	}
 
-	_, _, secondErr := s.persistAssignment(t.Context(), draw, assignResult)
+	_, _, secondErr := s.persistAssignment(t.Context(), draw, assignResult, memberByID)
 	if !errors.Is(secondErr, api.ErrDrawAlreadyRun) {
 		t.Errorf(
 			"second persistAssignment() error = %v, want api.ErrDrawAlreadyRun (not an unmapped constraint error)",
@@ -340,13 +458,15 @@ func createCompletedDraw(t *testing.T, store *db.Store, drawerID int64, exchange
 	return updated
 }
 
-func createTestAssignment(t *testing.T, store *db.Store, drawID, gifterID, gifteeID int64) {
+func createTestAssignment(t *testing.T, store *db.Store, drawID int64, gifter, giftee sqlc.Member) {
 	t.Helper()
 
 	if _, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         drawID,
-		GifterMemberID: gifterID,
-		GifteeMemberID: gifteeID,
+		DrawID:            drawID,
+		GifterMemberID:    sql.NullInt64{Int64: gifter.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: giftee.ID, Valid: true},
+		GifterPhoneNumber: gifter.PhoneNumber,
+		GifteePhoneNumber: giftee.PhoneNumber,
 	}); err != nil {
 		t.Fatalf("CreateAssignment() error = %v, want nil", err)
 	}

@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -60,15 +61,23 @@ func TestAssignmentQueries_CRUD(t *testing.T) {
 	draw, memberA, memberB := setupDrawWithTwoMembers(t, store)
 
 	created, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         draw.ID,
-		GifterMemberID: memberA.ID,
-		GifteeMemberID: memberB.ID,
+		DrawID:            draw.ID,
+		GifterMemberID:    sql.NullInt64{Int64: memberA.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: memberB.ID, Valid: true},
+		GifterPhoneNumber: memberA.PhoneNumber,
+		GifteePhoneNumber: memberB.PhoneNumber,
 	})
 	if err != nil {
 		t.Fatalf("CreateAssignment() error = %v, want nil", err)
 	}
-	if created.GifterMemberID != memberA.ID || created.GifteeMemberID != memberB.ID {
+	if created.GifterMemberID.Int64 != memberA.ID || created.GifteeMemberID.Int64 != memberB.ID {
 		t.Errorf("CreateAssignment() = %+v, want gifter=%d giftee=%d", created, memberA.ID, memberB.ID)
+	}
+	if created.GifterPhoneNumber != memberA.PhoneNumber || created.GifteePhoneNumber != memberB.PhoneNumber {
+		t.Errorf(
+			"CreateAssignment() phone snapshot = %q/%q, want %q/%q",
+			created.GifterPhoneNumber, created.GifteePhoneNumber, memberA.PhoneNumber, memberB.PhoneNumber,
+		)
 	}
 
 	list, err := store.Queries.ListAssignmentsByDraw(t.Context(), draw.ID)
@@ -91,9 +100,11 @@ func TestCreateAssignment_RejectsSelfAssignment(t *testing.T) {
 	draw, memberA, _ := setupDrawWithTwoMembers(t, store)
 
 	_, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         draw.ID,
-		GifterMemberID: memberA.ID,
-		GifteeMemberID: memberA.ID,
+		DrawID:            draw.ID,
+		GifterMemberID:    sql.NullInt64{Int64: memberA.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: memberA.ID, Valid: true},
+		GifterPhoneNumber: memberA.PhoneNumber,
+		GifteePhoneNumber: memberA.PhoneNumber,
 	})
 	if err == nil {
 		t.Fatal("CreateAssignment() with gifter == giftee error = nil, want non-nil")
@@ -111,17 +122,21 @@ func TestCreateAssignment_RejectsDuplicateGifterInSameDraw(t *testing.T) {
 	draw, memberA, memberB := setupDrawWithTwoMembers(t, store)
 
 	if _, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         draw.ID,
-		GifterMemberID: memberA.ID,
-		GifteeMemberID: memberB.ID,
+		DrawID:            draw.ID,
+		GifterMemberID:    sql.NullInt64{Int64: memberA.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: memberB.ID, Valid: true},
+		GifterPhoneNumber: memberA.PhoneNumber,
+		GifteePhoneNumber: memberB.PhoneNumber,
 	}); err != nil {
 		t.Fatalf("CreateAssignment() first error = %v, want nil", err)
 	}
 
 	_, err := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         draw.ID,
-		GifterMemberID: memberA.ID,
-		GifteeMemberID: memberB.ID,
+		DrawID:            draw.ID,
+		GifterMemberID:    sql.NullInt64{Int64: memberA.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: memberB.ID, Valid: true},
+		GifterPhoneNumber: memberA.PhoneNumber,
+		GifteePhoneNumber: memberB.PhoneNumber,
 	})
 	if err == nil {
 		t.Fatal("CreateAssignment() duplicate gifter in same draw error = nil, want non-nil")
@@ -148,17 +163,21 @@ func TestCreateAssignment_RejectsDuplicateGifteeInSameDraw(t *testing.T) {
 	}
 
 	if _, firstErr := store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         draw.ID,
-		GifterMemberID: memberA.ID,
-		GifteeMemberID: memberB.ID,
+		DrawID:            draw.ID,
+		GifterMemberID:    sql.NullInt64{Int64: memberA.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: memberB.ID, Valid: true},
+		GifterPhoneNumber: memberA.PhoneNumber,
+		GifteePhoneNumber: memberB.PhoneNumber,
 	}); firstErr != nil {
 		t.Fatalf("CreateAssignment() first error = %v, want nil", firstErr)
 	}
 
 	_, err = store.Queries.CreateAssignment(t.Context(), sqlc.CreateAssignmentParams{
-		DrawID:         draw.ID,
-		GifterMemberID: memberC.ID,
-		GifteeMemberID: memberB.ID,
+		DrawID:            draw.ID,
+		GifterMemberID:    sql.NullInt64{Int64: memberC.ID, Valid: true},
+		GifteeMemberID:    sql.NullInt64{Int64: memberB.ID, Valid: true},
+		GifterPhoneNumber: memberC.PhoneNumber,
+		GifteePhoneNumber: memberB.PhoneNumber,
 	})
 	if err == nil {
 		t.Fatal("CreateAssignment() duplicate giftee in same draw error = nil, want non-nil")
