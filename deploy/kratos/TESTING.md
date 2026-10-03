@@ -19,14 +19,17 @@ differs.
 
 ```sh
 task kratos:down       # if a plain `task kratos:up` stack is already running
-task kratos:up:app     # Postgres, Kratos, mailslurper, self-service UI, AND unwrap-gift itself
+cp .env.example .env   # only needed if you don't already have one
+task dev:up            # Postgres x2, Kratos, Keto, mailslurper, AND unwrap-gift itself
 ```
 
-This builds `unwrap-gift` from the repo root and starts it on the same Docker network as Kratos
-(see `deploy/kratos/docker-compose.app.yml`), reachable at the usual `:8080`/`:8081`/`:8082`
-host ports. No `.env` file or `task run` needed — env vars are set directly in the compose file.
+This builds `unwrap-gift` from the repo root and starts it (hot-reloading via air) on the same
+Docker network as Kratos and Keto (see `deploy/dev/docker-compose.yml`), reachable at the usual
+`:8080`/`:8081`/`:8082`/`:8083` host ports. Most env vars are set directly in the compose file;
+`.env` only needs to exist so compose has something to read `SEVEN_API_KEY`/`SEVEN_SENDER_ID`/
+`KETO_SEED_ADMIN_IDENTITY_ID`/`DISABLE_FEATURES` from (all optional for this walkthrough).
 
-Tear down with `task kratos:down:app`.
+Tear down with `task dev:down`.
 
 ### 1. Create an identity (organiser provisioning)
 
@@ -68,7 +71,8 @@ the updated (still in-progress) flow to signal "submit the code next," not a rea
 ### 4. Read the delivered code from unwrap-gift's own logs
 
 ```sh
-docker logs unwrap-gift-kratos-unwrap-gift-1 --tail 5
+docker logs unwrap-gift-dev-unwrap-gift-1 --tail 5
+# or: task dev:logs
 ```
 
 Look for a line like:
@@ -135,6 +139,6 @@ though the webhook delivery leg specifically can't be exercised this way on OrbS
 ## Cleanup
 
 ```sh
-task kratos:down:app   # Setup A
-task kratos:down       # Setup B (also stops a plain kratos:up stack)
+task dev:down     # Setup A
+task kratos:down  # Setup B (also stops a plain kratos:up stack)
 ```

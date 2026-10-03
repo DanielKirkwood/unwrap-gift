@@ -44,3 +44,8 @@ deploy/production/backups/
 
 # Local-only planning docs
 /docs/
+
+# air's build output for deploy/dev/docker-compose.yml's hot-reloading
+# unwrap-gift service (see .air.toml) — bind-mounted into the container, so
+# it lands on the host too.
+/tmp/

@@ -1,5 +1,6 @@
 .git
 bin/
+tmp/
 dev.db
 dev.db-wal
 dev.db-shm

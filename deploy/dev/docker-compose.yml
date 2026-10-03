@@ -1,0 +1,211 @@
+# The full local dev stack in one file: Postgres x2, Kratos, Keto,
+# mailslurper, and unwrap-gift itself (hot-reloading via air — see
+# ./Dockerfile), all on one Docker network. Supersedes running
+# deploy/kratos + deploy/keto's compose files plus `task run` separately:
+#
+#   task dev:up    # docker compose --env-file .env -f deploy/dev/docker-compose.yml up --build --wait
+#   task dev:down
+#
+# unwrap-gift runs as a container here (unlike deploy/kratos/README.md's
+# plain `task run` flow), reachable at the same host ports: 8080 (public),
+# 8081 (protected), 8082 (hidden), 8083 (web UI). Running it in-network
+# rather than on the host is deliberate, not incidental: Kratos's courier
+# webhook (see deploy/kratos/README.md's "Courier SMS webhook" section) then
+# always reaches it via a normal container hostname — the host.docker.internal
+# route that setup needs is flaky in general and outright broken on OrbStack
+# (see that README's GOTCHA), so courier delivery is unreliable there no
+# matter the platform. Giving kratos a static-IP override for
+# host.docker.internal (below) means kratos.yml itself needs no changes
+# between this file and the plain host-run dev flow.
+#
+# .env (repo root, see .env.example) still supplies KETO_SEED_ADMIN_IDENTITY_ID,
+# SEVEN_API_KEY/SEVEN_SENDER_ID, DISABLE_FEATURES, and OTEL_EXPORTER_OTLP_ENDPOINT
+# — everything else unwrap-gift needs (DATABASE_PATH, the Kratos/Keto URLs) is
+# fixed to container-internal values below and ignores .env's copies of those,
+# since those are only correct for the host-run flow.
+
+name: unwrap-gift-dev
+
+services:
+  postgres-kratos:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: kratos
+      POSTGRES_PASSWORD: kratos
+      POSTGRES_DB: kratos
+    ports:
+      - "5433:5432"
+    volumes:
+      - kratos-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kratos"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    networks:
+      - dev
+
+  kratos-migrate:
+    image: oryd/kratos:v1.3.1
+    depends_on:
+      postgres-kratos:
+        condition: service_healthy
+    environment:
+      DSN: postgres://kratos:kratos@postgres-kratos:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ../kratos/kratos.yml:/etc/config/kratos/kratos.yml
+      - ../kratos/identity.schema.json:/etc/config/kratos/identity.schema.json
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+    networks:
+      - dev
+
+  kratos:
+    image: oryd/kratos:v1.3.1
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://kratos:kratos@postgres-kratos:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    ports:
+      - "4433:4433" # public API — matches KRATOS_PUBLIC_URL below
+      - "4434:4434" # admin API — matches KRATOS_ADMIN_URL below
+    # kratos.yml's courier channel targets host.docker.internal:8082 — the
+    # same config used by the plain host-run dev flow. Here that name is
+    # remapped to unwrap-gift's static IP (see `networks:` below) instead of
+    # Docker's real host-gateway address, so the courier webhook reaches the
+    # containerized app directly without kratos.yml needing a second,
+    # compose-file-specific copy.
+    extra_hosts:
+      - "host.docker.internal:172.28.0.10"
+    volumes:
+      - ../kratos/kratos.yml:/etc/config/kratos/kratos.yml
+      - ../kratos/identity.schema.json:/etc/config/kratos/identity.schema.json
+      - ../kratos/login_code.sms.jsonnet:/etc/config/kratos/login_code.sms.jsonnet
+    command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
+    networks:
+      - dev
+
+  mailslurper:
+    image: oryd/mailslurper:latest-smtps
+    ports:
+      - "4436:4436" # web UI — view sent verification/recovery emails
+      - "4437:4437"
+    networks:
+      - dev
+
+  postgres-keto:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: keto
+      POSTGRES_PASSWORD: keto
+      POSTGRES_DB: keto
+    ports:
+      - "5434:5432"
+    volumes:
+      - keto-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keto"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    networks:
+      - dev
+
+  keto-migrate:
+    image: oryd/keto:v26.2.0
+    depends_on:
+      postgres-keto:
+        condition: service_healthy
+    environment:
+      DSN: postgres://keto:keto@postgres-keto:5432/keto?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ../keto/keto.yml:/etc/config/keto/keto.yml
+      - ../keto/identities.ts:/etc/config/keto/identities.ts
+    command: -c /etc/config/keto/keto.yml migrate up -y
+    networks:
+      - dev
+
+  keto:
+    image: oryd/keto:v26.2.0
+    depends_on:
+      keto-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://keto:keto@postgres-keto:5432/keto?sslmode=disable&max_conns=20&max_idle_conns=4
+    ports:
+      - "4466:4466" # read API — matches KETO_READ_URL below
+      - "4467:4467" # write API — matches KETO_WRITE_URL below
+    volumes:
+      - ../keto/keto.yml:/etc/config/keto/keto.yml
+      - ../keto/identities.ts:/etc/config/keto/identities.ts
+    command: serve -c /etc/config/keto/keto.yml
+    networks:
+      - dev
+
+  unwrap-gift-migrate:
+    build:
+      context: ../..
+    environment:
+      DATABASE_PATH: /data/unwrap-gift.db
+    volumes:
+      - unwrap-gift-data:/data
+    command: ["db", "migrate"]
+    networks:
+      - dev
+
+  unwrap-gift:
+    build:
+      context: ../..
+      dockerfile: deploy/dev/Dockerfile
+    depends_on:
+      unwrap-gift-migrate:
+        condition: service_completed_successfully
+      kratos:
+        condition: service_started
+      keto:
+        condition: service_started
+    environment:
+      ENV: development
+      LOG_LEVEL: debug
+      DATABASE_PATH: /data/unwrap-gift.db
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      KRATOS_COURIER_WEBHOOK_SECRET: dev-courier-webhook-secret-not-secure
+      KETO_READ_URL: http://keto:4466
+      KETO_WRITE_URL: http://keto:4467
+      # Only the vars actually read from .env — not a blanket env_file,
+      # which would also hand this container the host-run flow's
+      # KRATOS_PUBLIC_URL etc. copies (wrong inside this network — see the
+      # file header) alongside the ones it actually needs.
+      SEVEN_API_KEY: ${SEVEN_API_KEY:-}
+      SEVEN_SENDER_ID: ${SEVEN_SENDER_ID:-}
+      KETO_SEED_ADMIN_IDENTITY_ID: ${KETO_SEED_ADMIN_IDENTITY_ID:-}
+      DISABLE_FEATURES: ${DISABLE_FEATURES:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    volumes:
+      - ../..:/app
+      - unwrap-gift-data:/data
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+      - "8083:8083"
+    networks:
+      dev:
+        ipv4_address: 172.28.0.10
+
+networks:
+  dev:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  kratos-postgres-data:
+  keto-postgres-data:
+  unwrap-gift-data:
+  go-mod-cache:
+  go-build-cache:

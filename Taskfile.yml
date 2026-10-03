@@ -8,7 +8,7 @@ vars:
 
 tasks:
     default:
-        desc: Build and run the app
+        desc: "Build and run the app on the host (no auth backends; see task dev:up for the full stack)"
         aliases: [run]
         dotenv: [".env"]
         cmds:
@@ -116,16 +116,6 @@ tasks:
         cmds:
             - docker compose -f deploy/kratos/docker-compose.kratos.yml down
 
-    kratos:up:app:
-        desc: Start the local dev Kratos stack PLUS unwrap-gift itself as a container (see docker-compose.app.yml — needed on OrbStack for the courier webhook to actually deliver)
-        cmds:
-            - docker compose -f deploy/kratos/docker-compose.kratos.yml -f deploy/kratos/docker-compose.app.yml up --wait --build
-
-    kratos:down:app:
-        desc: Stop the local dev Kratos stack started via kratos:up:app
-        cmds:
-            - docker compose -f deploy/kratos/docker-compose.kratos.yml -f deploy/kratos/docker-compose.app.yml down
-
     kratos:logs:
         desc: Tail logs from the local dev Ory Kratos stack
         cmds:
@@ -157,6 +147,31 @@ tasks:
         cmds:
             - task: keto:down
             - task: kratos:down
+
+    dev:up:
+        desc: "Start the full local dev stack in Docker — Kratos, Keto, mailslurper, and unwrap-gift itself with hot reload (see deploy/dev/docker-compose.yml)"
+        cmds:
+            - docker compose --env-file .env -f deploy/dev/docker-compose.yml up --build --wait
+
+    dev:down:
+        desc: Stop the full local dev stack started via dev:up
+        cmds:
+            - docker compose --env-file .env -f deploy/dev/docker-compose.yml down
+
+    dev:logs:
+        desc: Tail logs from the full local dev stack
+        cmds:
+            - docker compose --env-file .env -f deploy/dev/docker-compose.yml logs -f
+
+    dev:seed:
+        desc: Seed Keto admin relation tuples inside the running dev stack (needs KETO_SEED_ADMIN_IDENTITY_ID in .env)
+        cmds:
+            - docker compose --env-file .env -f deploy/dev/docker-compose.yml exec unwrap-gift go run . db seed
+
+    dev:exec:
+        desc: "Run an unwrap-gift CLI command inside the running dev stack (usage: task dev:exec -- task exec grant-admin --arg identity-id=<id>)"
+        cmds:
+            - docker compose --env-file .env -f deploy/dev/docker-compose.yml exec unwrap-gift go run . {{.CLI_ARGS}}
 
     clean:
         desc: Clean every generated file

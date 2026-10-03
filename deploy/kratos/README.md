@@ -1,8 +1,13 @@
 # Ory Kratos (self-hosted)
 
-This directory holds everything needed to run Ory Kratos for **local development**:
-`kratos.yml`, `identity.schema.json`, `login_code.sms.jsonnet`, `docker-compose.kratos.yml`, and
-(optionally) `docker-compose.app.yml`. Start/stop it with:
+This directory holds everything needed to run Ory Kratos for **local development**: `kratos.yml`,
+`identity.schema.json`, `login_code.sms.jsonnet`, and `docker-compose.kratos.yml`.
+
+**Most contributors want `task dev:up` instead** (see the root [`README.md`](../../README.md) and
+[`deploy/dev/docker-compose.yml`](../dev/docker-compose.yml)) — it brings up this stack, Keto, and
+unwrap-gift itself together, with hot reload, and is the only setup where the courier SMS webhook
+below reliably delivers. The commands here start Kratos on its own, for the lighter host-run
+alternative (faster native edit/rebuild loop, no working courier webhook — see that section):
 
 ```sh
 task kratos:up    # Postgres, Kratos, mailslurper
@@ -38,9 +43,11 @@ feature disabled, which is the local dev default), then submit
 `{"method":"code","identifier":"<phone>","code":"<code>"}` (yes, `identifier` again — Kratos's
 code-method login flow requires it on both steps) to receive a session.
 
-`unwrap-gift` itself runs on the host, not inside this compose network — that's why the Kratos public/
-admin ports are published to `localhost` here, and why `kratos.yml`'s `serve.public.base_url` is
-`http://127.0.0.1:4433/` rather than a container hostname.
+Under `task kratos:up` + `task run`, `unwrap-gift` runs on the host, not inside this compose
+network — that's why the Kratos public/admin ports are published to `localhost` here, and why
+`kratos.yml`'s `serve.public.base_url` is `http://127.0.0.1:4433/` rather than a container
+hostname. Under `task dev:up`, `unwrap-gift` runs as a container instead, but `kratos.yml` is
+unchanged — see `deploy/dev/docker-compose.yml`'s file header for how it adapts.
 
 See `TESTING.md` in this directory for copy-pasteable curl commands walking through the whole
 identity-provisioning → login → code-submission flow, including the OrbStack workaround below.
@@ -57,9 +64,9 @@ stdout (`sms` disabled — the local dev default, so login is testable without a
   `courier.channels[sms].request_config.auth.config.value` (hardcoded to
   `dev-courier-webhook-secret-not-secure` for local dev) and `.env`'s
   `KRATOS_COURIER_WEBHOOK_SECRET`.
-- In local dev, Kratos (in its own compose network) reaches `unwrap-gift` (running on the host) via
-  `host.docker.internal:8082` — `docker-compose.kratos.yml`'s `kratos` service sets
-  `extra_hosts: host.docker.internal:host-gateway` for this.
+- In local dev (`task kratos:up`, app on the host), Kratos (in its own compose network) reaches
+  `unwrap-gift` via `host.docker.internal:8082` — `docker-compose.kratos.yml`'s `kratos` service
+  sets `extra_hosts: host.docker.internal:host-gateway` for this.
 - **GOTCHA, confirmed empirically (not just from Ory's docs):** the config key that actually
   dispatches SMS on this self-hosted Kratos version is `courier.channels` (an array,
   `type: http`) — **not** `courier.sms.request_config`, which is accepted by schema validation but
@@ -74,10 +81,12 @@ stdout (`sms` disabled — the local dev default, so login is testable without a
   setting only covers `clients.http`'s general-purpose client, not the courier channel's own guard.
   Docker Desktop for Mac/Windows and plain Linux Docker Engine resolve `host.docker.internal` to an
   ordinary (non-reserved) address and are not known to hit this; **if you're on OrbStack and local
-  SMS login codes never arrive, this is why** — there is no config-only fix found so far. The e2e
-  test (`internal/clients/kratosclient/kratosclient_e2e_test.go`) sidesteps it by running its
-  stand-in webhook as a container on the same Docker network rather than relying on
-  `host.docker.internal` at all.
+  SMS login codes never arrive under `task kratos:up` + `task run`, this is why** — there is no
+  config-only fix for the host-run flow. `task dev:up` (see `deploy/dev/docker-compose.yml`)
+  sidesteps the whole problem by running `unwrap-gift` as a container on the same Docker network,
+  the same way the e2e test
+  (`internal/clients/kratosclient/kratosclient_e2e_test.go`) and production both already do — no
+  `host.docker.internal` involved, verified working on every platform including OrbStack.
 - Kratos's config schema also requires a `courier.templates.login_code.valid.email` template to be
   present even though this identity schema has no email trait and the `code` method here is
   SMS-only (`via: sms`) — it's never rendered or sent, but its absence fails schema validation.

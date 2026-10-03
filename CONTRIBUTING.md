@@ -8,8 +8,10 @@ not API/godoc conventions.
 
 - **Go 1.27.1** (pinned in `go.mod`; CI uses `go-version-file: go.mod`, so
   install exactly this version to avoid drift).
-- **Docker** — needed for `task test:e2e` and for the local Kratos/Keto dev
-  stacks (`task auth:up`). Not needed for the default build/test/lint loop.
+- **Docker** — needed for `task test:e2e`, for `task dev:up` (the full local
+  dev stack with auth and hot reload — see the root [`README.md`](README.md)),
+  and for the lighter `task auth:up` Kratos/Keto-only alternative. Not needed
+  for the default build/test/lint loop.
 - **[go-task](https://taskfile.dev)** — all commands below run through it.
 - **golangci-lint v2.14** — pinned in `.github/workflows/golangci-lint.yml`
   (`golangci-lint-action@v9`, `version: v2.14`). Install the matching

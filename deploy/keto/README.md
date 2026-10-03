@@ -1,7 +1,12 @@
 # Ory Keto (self-hosted)
 
-This directory holds everything needed to run Ory Keto for **local development**:
-`keto.yml`, `identities.ts`, and `docker-compose.keto.yml`. Start/stop it with:
+This directory holds everything needed to run Ory Keto for **local development**: `keto.yml`,
+`identities.ts`, and `docker-compose.keto.yml`.
+
+**Most contributors want `task dev:up` instead** (see the root [`README.md`](../../README.md) and
+[`deploy/dev/docker-compose.yml`](../dev/docker-compose.yml)) — it brings up this stack, Kratos,
+and unwrap-gift itself together, with hot reload. The commands here start Keto on its own, for the
+lighter host-run alternative:
 
 ```sh
 task keto:up    # Postgres, Keto
@@ -23,15 +28,19 @@ Then set `KETO_READ_URL=http://localhost:4466` and `KETO_WRITE_URL=http://localh
    `deploy/kratos/README.md`'s curl example), or query `GET {KRATOS_ADMIN_URL}/admin/identities`
    for an identity created some other way.
 2. Set `KETO_SEED_ADMIN_IDENTITY_ID` in `.env` to that identity's ID.
-3. Run `task db:seed`. This creates two relation tuples (see `identities.ts`):
+3. Run `task db:seed` (host-run flow) or `task dev:seed` (`task dev:up` flow). This creates two
+   relation tuples (see `identities.ts`):
    - `Role:admin#members@<identity-id>`
    - `Identities:admin#managers@Role:admin`
 
 That identity can now call the hidden router's `/admin/identities/*` endpoints; any other
 identity gets a 403.
 
-`unwrap-gift` itself runs on the host, not inside this compose network — that's why the Keto read/
-write ports are published to `localhost` here.
+Under `task keto:up` + `task run`, `unwrap-gift` runs on the host, not inside this compose
+network — that's why the Keto read/write ports are published to `localhost` here. Under `task
+dev:up`, `unwrap-gift` runs as a container on the same network as Keto instead, reaching it via
+`http://keto:4466`/`http://keto:4467` directly (see `deploy/dev/docker-compose.yml`); these ports
+are still published to `localhost` there too, for debugging.
 
 ## What changes for production
 

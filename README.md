@@ -41,22 +41,32 @@ disabled because their required env vars aren't set (see [ARCHITECTURE.md](ARCHI
 
 ### Full local dev (with auth)
 
-Requires Go, Docker, and [go-task](https://taskfile.dev/):
+Requires Docker and [go-task](https://taskfile.dev/):
 
 ```sh
 cp .env.example .env
-task auth:up       # starts Kratos + Keto locally (Postgres, mailslurper)
-task db:migrate
-task run
+task dev:up
 ```
+
+This starts Postgres x2, Kratos, Keto, mailslurper, and unwrap-gift itself — hot-reloading on every
+source change via [air](https://github.com/air-verse/air) — all on one Docker network (see
+[`deploy/dev/docker-compose.yml`](deploy/dev/docker-compose.yml)). Migrations run automatically.
+Running unwrap-gift as a container here, rather than on the host, is deliberate: it's what makes
+Kratos's courier SMS webhook reach it reliably regardless of platform (see
+[`deploy/kratos/README.md`](deploy/kratos/README.md)'s "Courier SMS webhook" section).
 
 Identities are organiser-provisioned only (no self-service registration) — create one via Kratos's
 admin API (see [`deploy/kratos/README.md`](deploy/kratos/README.md) for the curl example), then set
-`KETO_SEED_ADMIN_IDENTITY_ID` in `.env` to that identity's ID and run `task db:seed` to grant it the
+`KETO_SEED_ADMIN_IDENTITY_ID` in `.env` to that identity's ID and run `task dev:seed` to grant it the
 admin role. Once auth and the database are both enabled, the login/wishlist web UI (`internal/web`)
 is at `http://localhost:8083`. See [`deploy/kratos/README.md`](deploy/kratos/README.md) and
 [`deploy/keto/README.md`](deploy/keto/README.md) for what each stack does and what changes in
 production.
+
+Prefer running unwrap-gift natively instead (faster edit/rebuild loop, easier to attach a debugger,
+no working SMS courier webhook)? `task auth:up` starts just Kratos + Keto, then `task db:migrate`
+and `task run` build and run the binary on the host — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for
+that workflow's prerequisites.
 
 For the full contributor workflow — running tests, linting, regenerating sqlc code — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
